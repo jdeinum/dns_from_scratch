@@ -1,5 +1,7 @@
-use anyhow::Result;
-use bytes::Bytes;
+use super::question::Question;
+use crate::dns::question::parse_questions;
+use anyhow::{Result, ensure};
+use bytes::{BufMut, Bytes, BytesMut};
 use tokio::net::UdpSocket;
 use tracing::info;
 
@@ -25,11 +27,14 @@ impl DnsServer {
             let (len, addr) = self.sock.recv_from(&mut buf).await?;
 
             // parse the request
-            let req = parse_header(Bytes::copy_from_slice(&buf[..len]))?;
+            let mut req = parse_request(Bytes::copy_from_slice(&buf[..len]))?;
             info!("parsed request {req:?}");
 
-            let len = self.sock.send_to(&buf[..len], addr).await?;
-            info!("{:?} bytes sent", len);
+            // change the request to a resp
+            req.header.query_type = DnsPacketType::Response;
+
+            let _ = self.sock.send_to(&buf[..len], addr).await?;
+            info!("send response {req:?}");
         }
     }
 
@@ -42,27 +47,70 @@ impl DnsServer {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub enum DnsPacketType {
+    #[default]
     Query = 0,
     Response = 1,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct DnsHeader {
-    packet_id: u16,
-    query_type: DnsPacketType,
-    opcode: u8,
-    auth_answer: bool,
-    truncation: bool,
-    recursion_desired: bool,
-    recursion_available: bool,
-    reserved: u8,
-    response_code: u8,
-    question_count: u16,
-    answer_record_count: u16,
-    authority_record_count: u16,
-    additional_record_count: u16,
+    pub packet_id: u16,
+    pub query_type: DnsPacketType,
+    pub opcode: u8,
+    pub auth_answer: bool,
+    pub truncation: bool,
+    pub recursion_desired: bool,
+    pub recursion_available: bool,
+    pub reserved: u8,
+    pub response_code: u8,
+    pub question_count: u16,
+    pub answer_record_count: u16,
+    pub authority_record_count: u16,
+    pub additional_record_count: u16,
+}
+
+impl DnsHeader {
+    pub fn write_header(&self) -> Bytes {
+        let mut buf = BytesMut::new();
+
+        // Packet ID
+        buf.extend_from_slice(&self.packet_id.to_be_bytes());
+
+        // QR, Opcode, AA, TC, RD, RA, Reserved, RCODE
+        let mut byte2 = 0u8;
+        if self.query_type == DnsPacketType::Response {
+            byte2 |= 1 << 7; // Set QR bit for response
+        }
+        byte2 |= (self.opcode & 0xf) << 3;
+        if self.auth_answer {
+            byte2 |= 1 << 2;
+        }
+        if self.truncation {
+            byte2 |= 1 << 1;
+        }
+        if self.recursion_desired {
+            byte2 |= 1 << 0;
+        }
+        let mut byte3 = 0u8;
+        if self.recursion_available {
+            byte3 |= 1 << 7;
+        }
+        byte3 |= (self.reserved & 0x7) << 4;
+        byte3 |= self.response_code & 0xf;
+
+        buf.put_u8(byte2);
+        buf.put_u8(byte3);
+
+        // Question count, answer record count, authority record count, additional record count
+        buf.extend_from_slice(&self.question_count.to_be_bytes());
+        buf.extend_from_slice(&self.answer_record_count.to_be_bytes());
+        buf.extend_from_slice(&self.authority_record_count.to_be_bytes());
+        buf.extend_from_slice(&self.additional_record_count.to_be_bytes());
+
+        buf.into()
+    }
 }
 
 // Field 	                            Size 	    Description
@@ -79,7 +127,7 @@ pub struct DnsHeader {
 // Answer Record Count (ANCOUNT) 	    16 bits 	Number of records in the Answer section.
 // Authority Record Count (NSCOUNT) 	16 bits 	Number of records in the Authority section.
 // Additional Record Count (ARCOUNT) 	16 bits 	Number of records in the Additional section.
-fn parse_header(buf: Bytes) -> Result<DnsHeader> {
+fn parse_header(buf: &Bytes) -> Result<DnsHeader> {
     let packet_id = u16::from_be_bytes(buf[0..2].try_into()?);
 
     let query_type = match buf[2] >> 7 {
@@ -160,4 +208,75 @@ fn parse_header(buf: Bytes) -> Result<DnsHeader> {
         authority_record_count,
         additional_record_count,
     })
+}
+
+#[derive(Debug)]
+struct DnsMessage {
+    pub header: DnsHeader,
+    pub questions: Vec<Question>,
+}
+
+impl DnsMessage {
+    pub fn to_bytes(&self) -> Result<Bytes> {
+        let mut buf: BytesMut = BytesMut::new();
+        buf.extend_from_slice(&self.header.write_header());
+        for q in self.questions.clone() {
+            buf.extend_from_slice(&q.to_bytes()?);
+        }
+
+        Ok(buf.into())
+    }
+}
+
+fn parse_request(buf: Bytes) -> Result<DnsMessage> {
+    // first 12 bytes are the header
+    ensure!(buf.len() >= 12, "request is less than 12 bytes long");
+
+    // parse the header
+    let dns_header = parse_header(&buf)?;
+
+    // parse the questions
+    let questions = parse_questions(
+        &Bytes::copy_from_slice(&buf[12..]),
+        dns_header.question_count.into(),
+    )?;
+
+    Ok(DnsMessage {
+        header: dns_header,
+        questions,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[derive(Clone, Debug)]
+    struct Header {
+        pub v: Vec<u8>,
+    }
+
+    impl Arbitrary for Header {
+        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            let mut v = Vec::with_capacity(12);
+            for _ in 0..12 {
+                v.push(u8::arbitrary(g))
+            }
+            Header { v }
+        }
+    }
+
+    use super::*;
+    use quickcheck::Arbitrary;
+    use quickcheck::TestResult;
+    use quickcheck::quickcheck;
+    quickcheck! {
+        fn decode_encode_header(h: Header) -> TestResult {
+            if h.v.len() != 12 {
+                return TestResult::discard()
+            }
+            let header = parse_header(&Bytes::copy_from_slice(&h.v[..12])).unwrap();
+            let encoded_header = header.write_header();
+            TestResult::from_bool(encoded_header == &h.v)
+        }
+    }
 }

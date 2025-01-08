@@ -16,3 +16,6 @@ path = "src/lib.rs"
 [[bin]]
 path = "src/main.rs"
 name = "dns_server"
+
+[dev-dependencies]
+quickcheck = "1.0.3"

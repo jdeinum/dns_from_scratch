@@ -2,6 +2,8 @@ use anyhow::Error;
 use anyhow::Result;
 use anyhow::ensure;
 use bytes::{BufMut, Bytes, BytesMut};
+use tracing::info;
+use tracing::instrument;
 
 // TYPE            value and meaning
 // A               1 a host address
@@ -95,7 +97,7 @@ impl TryInto<i16> for QuestionType {
 
 #[derive(Clone, Default, Debug)]
 pub struct LabelSet {
-    labels: Vec<String>,
+    pub labels: Vec<String>,
 }
 
 impl LabelSet {
@@ -125,9 +127,9 @@ impl LabelSet {
 
 #[derive(Default, Clone, Debug)]
 pub struct Question {
-    name: LabelSet,
-    qtype: QuestionType,
-    class: i16,
+    pub name: LabelSet,
+    pub qtype: QuestionType,
+    pub class: i16,
 }
 
 impl Question {
@@ -175,11 +177,15 @@ pub fn parse_question(buf: &Bytes, mut current: usize) -> Result<(Question, usiz
 
 // the question section starts at byte 12 (after the header section)
 // while the number of questions are located in the header
-pub fn parse_questions(buf: Bytes, num_questions: usize) -> Result<Vec<Question>> {
-    let start: usize = 0;
+#[instrument]
+pub fn parse_questions(buf: &Bytes, num_questions: usize) -> Result<Vec<Question>> {
+    info!("Parsing questions");
+    let mut start: usize = 0;
     let mut questions: Vec<Question> = Vec::new();
-    for i in 0..num_questions {
-        let (q, start) = parse_question(&buf, start)?;
+    for _ in 0..num_questions {
+        info!("parsing question");
+        let (q, i) = parse_question(&buf, start)?;
+        start = i;
         questions.push(q);
     }
 
@@ -210,7 +216,7 @@ mod tests {
             0x00,
         ];
         let expected_domain = "google.com";
-        let questions = parse_questions(Bytes::copy_from_slice(b), 1)?;
+        let questions = parse_questions(&Bytes::copy_from_slice(b), 1)?;
         assert_eq!(questions.len(), 1);
         assert_eq!(&questions[0].name.as_domain(), expected_domain);
         assert_eq!(questions[0].class, 1);

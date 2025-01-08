@@ -4,7 +4,7 @@ use anyhow::Result;
 use bytes::Bytes;
 
 #[tokio::test]
-async fn test_basic_reply() -> Result<()> {
+async fn test_parse_header() -> Result<()> {
     let server_addr = spawn_app().await?;
 
     // we can just send 12 bytes of zeroes
