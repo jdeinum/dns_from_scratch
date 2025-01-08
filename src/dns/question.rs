@@ -149,35 +149,43 @@ impl Question {
     }
 }
 
-pub fn parse_question(buf: &Bytes, mut current: usize) -> Result<(Question, usize)> {
+#[instrument(ret, err)]
+pub fn parse_question(buf: &Bytes, start: usize) -> Result<(Question, usize)> {
     // check that a null byte exists
     let label_end = buf.iter().find(|x| **x == 0);
     ensure!(label_end.is_some(), "No null byte in label");
     ensure!(buf.len() > 0, "Buffer to parse question from is empty");
 
     let mut q: Question = Question::default();
+    let mut current = start;
     while buf[current] != 0 {
         let length = buf[current]; // single byte is the length
+        info!("parsing label of length {length}");
         current += 1;
         let label = &buf[current..current + length as usize];
+        info!("found label {}", String::from_utf8(label.to_vec())?);
         q.name.labels.push(String::from_utf8(label.to_vec())?);
         current += length as usize;
     }
 
-    // we are currently at the null byte, the next two bytes are the type
+    // we are currently at the null byte, add 1 to move to the question type
+    current += 1;
     let qtype = i16::from_be_bytes(buf[current..current + 2].try_into()?);
     q.qtype = qtype.try_into()?;
 
     // class is the last 2 bytes
-    let class = i16::from_be_bytes(buf[current + 2..current + 4].try_into()?);
+    current += 2;
+    let class = i16::from_be_bytes(buf[current..current + 2].try_into()?);
     q.class = class;
+
+    current += 4;
 
     Ok((q, current))
 }
 
 // the question section starts at byte 12 (after the header section)
 // while the number of questions are located in the header
-#[instrument]
+#[instrument(skip_all, ret, err)]
 pub fn parse_questions(buf: &Bytes, num_questions: usize) -> Result<Vec<Question>> {
     info!("Parsing questions");
     let mut start: usize = 0;
@@ -185,7 +193,7 @@ pub fn parse_questions(buf: &Bytes, num_questions: usize) -> Result<Vec<Question
     for _ in 0..num_questions {
         info!("parsing question");
         let (q, i) = parse_question(&buf, start)?;
-        start = i;
+        start += i;
         questions.push(q);
     }
 
@@ -212,8 +220,8 @@ mod tests {
     #[test]
     fn test_labels_to_domain() -> Result<()> {
         let b: &[u8] = &[
-            0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x1, 0x00, 0x1,
-            0x00,
+            0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01,
+            0x00, 0x01,
         ];
         let expected_domain = "google.com";
         let questions = parse_questions(&Bytes::copy_from_slice(b), 1)?;

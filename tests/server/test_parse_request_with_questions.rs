@@ -1,7 +1,6 @@
 use crate::helpers::send_request;
 use crate::helpers::spawn_app;
 use anyhow::Result;
-use bytes::Bytes;
 use bytes::BytesMut;
 use dns::dns::DnsHeader;
 use dns::dns::LabelSet;

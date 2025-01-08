@@ -3,7 +3,7 @@ use crate::dns::question::parse_questions;
 use anyhow::{Result, ensure};
 use bytes::{BufMut, Bytes, BytesMut};
 use tokio::net::UdpSocket;
-use tracing::info;
+use tracing::{info, instrument};
 
 #[derive(Debug)]
 pub struct DnsServer {
@@ -127,6 +127,7 @@ impl DnsHeader {
 // Answer Record Count (ANCOUNT) 	    16 bits 	Number of records in the Answer section.
 // Authority Record Count (NSCOUNT) 	16 bits 	Number of records in the Authority section.
 // Additional Record Count (ARCOUNT) 	16 bits 	Number of records in the Additional section.
+#[instrument(skip_all, ret, err)]
 fn parse_header(buf: &Bytes) -> Result<DnsHeader> {
     let packet_id = u16::from_be_bytes(buf[0..2].try_into()?);
 
@@ -228,6 +229,7 @@ impl DnsMessage {
     }
 }
 
+#[instrument(skip_all, ret, err)]
 fn parse_request(buf: Bytes) -> Result<DnsMessage> {
     // first 12 bytes are the header
     ensure!(buf.len() >= 12, "request is less than 12 bytes long");
