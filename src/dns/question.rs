@@ -1,5 +1,6 @@
 use anyhow::Error;
 use anyhow::Result;
+use anyhow::ensure;
 use bytes::{BufMut, Bytes, BytesMut};
 
 // TYPE            value and meaning
@@ -19,7 +20,9 @@ use bytes::{BufMut, Bytes, BytesMut};
 // MINFO           14 mailbox or mail list information
 // MX              15 mail exchange
 // TXT             16 text strings
+#[derive(Clone, Debug, Default)]
 pub enum QuestionType {
+    #[default]
     A = 1,
     NS = 2,
     MD = 3,
@@ -38,7 +41,7 @@ pub enum QuestionType {
     TXT = 16,
 }
 
-impl TryInto<QuestionType> for u16 {
+impl TryInto<QuestionType> for i16 {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<QuestionType, Self::Error> {
@@ -64,6 +67,33 @@ impl TryInto<QuestionType> for u16 {
     }
 }
 
+impl TryInto<i16> for QuestionType {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> Result<i16, Self::Error> {
+        Ok(match self {
+            QuestionType::A => 1,
+            QuestionType::NS => 2,
+            QuestionType::MD => 3,
+            QuestionType::MF => 4,
+            QuestionType::CNAME => 5,
+            QuestionType::SOA => 6,
+            QuestionType::MB => 7,
+            QuestionType::MG => 8,
+            QuestionType::MR => 9,
+            QuestionType::NULL => 10,
+            QuestionType::WKS => 11,
+            QuestionType::PTR => 12,
+            QuestionType::HINFO => 13,
+            QuestionType::MINFO => 14,
+            QuestionType::MX => 15,
+            QuestionType::TXT => 16,
+            _ => return Err(Error::msg(format!("Invalid QuestionType: {:?}", self))),
+        })
+    }
+}
+
+#[derive(Clone, Default, Debug)]
 pub struct LabelSet {
     labels: Vec<String>,
 }
@@ -87,23 +117,74 @@ impl LabelSet {
         buf.put(&b"\x00"[..]);
         Ok(buf.into())
     }
+
+    pub fn as_domain(&self) -> String {
+        self.labels.join(".")
+    }
 }
 
+#[derive(Default, Clone, Debug)]
 pub struct Question {
     name: LabelSet,
     qtype: QuestionType,
-    class: u8,
+    class: i16,
 }
 
-pub struct Questions {
-    questions: Vec<Question>,
+impl Question {
+    pub fn to_bytes(&self) -> Result<Bytes> {
+        let mut buf: BytesMut = BytesMut::new();
+
+        // label set
+        buf.extend_from_slice(&self.name.encode()?);
+
+        // type
+        buf.put_i16(self.qtype.clone().try_into()?);
+
+        // class
+        buf.put_i16(1);
+
+        Ok(buf.into())
+    }
 }
 
-pub fn parse_question(buf: Bytes) -> Result<Question> {}
+pub fn parse_question(buf: &Bytes, mut current: usize) -> Result<(Question, usize)> {
+    // check that a null byte exists
+    let label_end = buf.iter().find(|x| **x == 0);
+    ensure!(label_end.is_some(), "No null byte in label");
+    ensure!(buf.len() > 0, "Buffer to parse question from is empty");
+
+    let mut q: Question = Question::default();
+    while buf[current] != 0 {
+        let length = buf[current]; // single byte is the length
+        current += 1;
+        let label = &buf[current..current + length as usize];
+        q.name.labels.push(String::from_utf8(label.to_vec())?);
+        current += length as usize;
+    }
+
+    // we are currently at the null byte, the next two bytes are the type
+    let qtype = i16::from_be_bytes(buf[current..current + 2].try_into()?);
+    q.qtype = qtype.try_into()?;
+
+    // class is the last 2 bytes
+    let class = i16::from_be_bytes(buf[current + 2..current + 4].try_into()?);
+    q.class = class;
+
+    Ok((q, current))
+}
 
 // the question section starts at byte 12 (after the header section)
 // while the number of questions are located in the header
-pub fn parse_questions(buf: Bytes, num_questions: usize) -> Result<Questions> {}
+pub fn parse_questions(buf: Bytes, num_questions: usize) -> Result<Vec<Question>> {
+    let start: usize = 0;
+    let mut questions: Vec<Question> = Vec::new();
+    for i in 0..num_questions {
+        let (q, start) = parse_question(&buf, start)?;
+        questions.push(q);
+    }
+
+    Ok(questions)
+}
 
 #[cfg(test)]
 mod tests {
@@ -119,6 +200,21 @@ mod tests {
             0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00,
         ];
         assert_eq!(labels.encode()?, expected_bytes);
+        Ok(())
+    }
+
+    #[test]
+    fn test_labels_to_domain() -> Result<()> {
+        let b: &[u8] = &[
+            0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x1, 0x00, 0x1,
+            0x00,
+        ];
+        let expected_domain = "google.com";
+        let questions = parse_questions(Bytes::copy_from_slice(b), 1)?;
+        assert_eq!(questions.len(), 1);
+        assert_eq!(&questions[0].name.as_domain(), expected_domain);
+        assert_eq!(questions[0].class, 1);
+        assert_eq!(questions[0].qtype.clone() as i16, 1);
         Ok(())
     }
 }
