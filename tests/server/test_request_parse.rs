@@ -6,7 +6,10 @@ use bytes::Bytes;
 #[tokio::test]
 async fn test_basic_reply() -> Result<()> {
     let server_addr = spawn_app().await?;
-    let message = Bytes::copy_from_slice("hello world".as_bytes());
+
+    // we can just send 12 bytes of zeroes
+    let req: [u8; 12] = [0; 12];
+    let message = Bytes::copy_from_slice(&req);
     let resp = send_request(&server_addr, message).await?;
     assert!(resp.len() > 0);
     Ok(())

@@ -23,7 +23,10 @@ impl DnsServer {
         let mut buf = [0; 1024];
         loop {
             let (len, addr) = self.sock.recv_from(&mut buf).await?;
-            info!("{:?} bytes received from {:?}", len, addr);
+
+            // parse the request
+            let req = parse_header(Bytes::copy_from_slice(&buf[..len]))?;
+            info!("parsed request {req:?}");
 
             let len = self.sock.send_to(&buf[..len], addr).await?;
             info!("{:?} bytes sent", len);
@@ -39,12 +42,14 @@ impl DnsServer {
     }
 }
 
+#[derive(Debug)]
 pub enum DnsPacketType {
     Query = 0,
     Response = 1,
 }
 
-pub struct DnsRequest {
+#[derive(Debug)]
+pub struct DnsHeader {
     packet_id: u16,
     query_type: DnsPacketType,
     opcode: u8,
@@ -60,8 +65,6 @@ pub struct DnsRequest {
     additional_record_count: u16,
 }
 
-pub struct DnsResponse {}
-
 // Field 	                            Size 	    Description
 // Packet Identifier (ID) 	            16 bits 	A random ID assigned to query packets. Response packets must reply with the same ID.
 // Query/Response Indicator (QR)    	1 bit 	    1 for a reply packet, 0 for a question packet.
@@ -76,7 +79,7 @@ pub struct DnsResponse {}
 // Answer Record Count (ANCOUNT) 	    16 bits 	Number of records in the Answer section.
 // Authority Record Count (NSCOUNT) 	16 bits 	Number of records in the Authority section.
 // Additional Record Count (ARCOUNT) 	16 bits 	Number of records in the Additional section.
-async fn parse_request(buf: Bytes) -> Result<DnsRequest> {
+fn parse_header(buf: Bytes) -> Result<DnsHeader> {
     let packet_id = u16::from_be_bytes(buf[0..2].try_into()?);
 
     let query_type = match buf[2] >> 7 {
@@ -142,7 +145,7 @@ async fn parse_request(buf: Bytes) -> Result<DnsRequest> {
 
     let additional_record_count: u16 = u16::from_be_bytes(buf[10..12].try_into()?);
 
-    Ok(DnsRequest {
+    Ok(DnsHeader {
         packet_id,
         query_type,
         opcode,
