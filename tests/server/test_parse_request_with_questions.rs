@@ -3,8 +3,8 @@ use crate::helpers::spawn_app;
 use anyhow::Result;
 use bytes::BytesMut;
 use dns::dns::DnsHeader;
+use dns::dns::DnsQuestion;
 use dns::dns::LabelSet;
-use dns::dns::Question;
 use dns::dns::QuestionType;
 
 #[tokio::test]
@@ -19,8 +19,8 @@ async fn test_parse_request_questions() -> Result<()> {
     buf.extend_from_slice(&request_header.write_header());
 
     // questions
-    let mut questions: Vec<Question> = Vec::new();
-    questions.push(Question {
+    let mut questions: Vec<DnsQuestion> = Vec::new();
+    questions.push(DnsQuestion {
         name: LabelSet::from_domain("google.com"),
         class: 1,
         qtype: QuestionType::A,

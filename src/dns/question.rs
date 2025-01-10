@@ -126,13 +126,13 @@ impl LabelSet {
 }
 
 #[derive(Default, Clone, Debug)]
-pub struct Question {
+pub struct DnsQuestion {
     pub name: LabelSet,
     pub qtype: QuestionType,
     pub class: i16,
 }
 
-impl Question {
+impl DnsQuestion {
     pub fn to_bytes(&self) -> Result<Bytes> {
         let mut buf: BytesMut = BytesMut::new();
 
@@ -150,13 +150,13 @@ impl Question {
 }
 
 #[instrument(ret, err)]
-pub fn parse_question(buf: &Bytes, start: usize) -> Result<(Question, usize)> {
+pub fn parse_question(buf: &Bytes, start: usize) -> Result<(DnsQuestion, usize)> {
     // check that a null byte exists
     let label_end = buf.iter().find(|x| **x == 0);
     ensure!(label_end.is_some(), "No null byte in label");
     ensure!(buf.len() > 0, "Buffer to parse question from is empty");
 
-    let mut q: Question = Question::default();
+    let mut q: DnsQuestion = DnsQuestion::default();
     let mut current = start;
     while buf[current] != 0 {
         let length = buf[current]; // single byte is the length
@@ -178,7 +178,7 @@ pub fn parse_question(buf: &Bytes, start: usize) -> Result<(Question, usize)> {
     let class = i16::from_be_bytes(buf[current..current + 2].try_into()?);
     q.class = class;
 
-    current += 4;
+    current += 2;
 
     Ok((q, current))
 }
@@ -186,10 +186,10 @@ pub fn parse_question(buf: &Bytes, start: usize) -> Result<(Question, usize)> {
 // the question section starts at byte 12 (after the header section)
 // while the number of questions are located in the header
 #[instrument(skip_all, ret, err)]
-pub fn parse_questions(buf: &Bytes, num_questions: usize) -> Result<Vec<Question>> {
+pub fn parse_questions(buf: &Bytes, num_questions: usize) -> Result<Vec<DnsQuestion>> {
     info!("Parsing questions");
     let mut start: usize = 0;
-    let mut questions: Vec<Question> = Vec::new();
+    let mut questions: Vec<DnsQuestion> = Vec::new();
     for _ in 0..num_questions {
         info!("parsing question");
         let (q, i) = parse_question(&buf, start)?;
