@@ -16,7 +16,7 @@ async fn test_parse_request_questions() -> Result<()> {
     // header
     let mut request_header = DnsHeader::default();
     request_header.question_count = 1;
-    buf.extend_from_slice(&request_header.write_header());
+    buf.extend_from_slice(&request_header.encode());
 
     // questions
     let mut questions: Vec<DnsQuestion> = Vec::new();
@@ -27,7 +27,7 @@ async fn test_parse_request_questions() -> Result<()> {
     });
 
     for q in questions {
-        buf.extend_from_slice(&q.to_bytes()?);
+        buf.extend_from_slice(&q.encode()?);
     }
 
     let resp = send_request(&server_addr, buf.into()).await?;

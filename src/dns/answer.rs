@@ -1,7 +1,8 @@
-use super::{LabelSet, QuestionType, parse_question, parse_questions};
+use super::{QuestionType, label};
+use crate::dns::label::LabelSet;
 use anyhow::Result;
 use bytes::{BufMut, Bytes, BytesMut};
-use std::{iter::Cycle, net::Ipv4Addr};
+use std::net::Ipv4Addr;
 
 #[derive(Clone, Debug, Default)]
 pub struct DnsAnswer {
@@ -22,7 +23,7 @@ impl DnsAnswer {
         buf.extend_from_slice(&self.name.encode()?);
 
         // qtype
-        buf.put_i16(self.qtype.clone().try_into()?);
+        buf.put_u16(self.qtype.clone().try_into()?);
 
         // class
         buf.put_i16(self.class);
@@ -48,14 +49,21 @@ impl DnsAnswer {
     }
 
     // num_answers is located in the header of the DNS message
-    pub fn decode(buf: Bytes, start: usize, num_answers: u16) -> Result<(Self, usize)> {
-        // first, we parse the label sequence, which consists of one or more of the following
-        // see the serialization of the LabelSet for details
-        // TODO: Should separate the label logic from the question, since its used in the answer
-        let (question, mut current) = parse_question(&buf, start)?;
+    pub fn decode(buf: Bytes, num_answers: u16) -> Result<(Self, usize)> {
+        // parse the domain we are answering
+        let domain_end_index = buf
+            .iter()
+            .enumerate()
+            .find(|(_, x)| **x == 0)
+            .map(|(i, _)| i)
+            .ok_or(anyhow::Error::msg("No null byte found in answer domain"))?;
+        let domain = LabelSet::decode(buf[..domain_end_index])?;
+
+        // index for parsing the rest of the message
+        let mut current = domain_end_index + 1;
 
         // qtype
-        let qtype = i16::from_be_bytes(buf[current..current + 2].try_into()?);
+        let qtype = u16::from_be_bytes(buf[current..current + 2].try_into()?);
         let qtype: QuestionType = qtype.try_into()?;
         current += 2;
 
@@ -88,7 +96,7 @@ impl DnsAnswer {
 
         Ok((
             DnsAnswer {
-                name: question.name,
+                name: domain,
                 qtype,
                 class,
                 ttl,

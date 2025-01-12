@@ -1,3 +1,4 @@
+use crate::dns::label::LabelSet;
 use anyhow::Error;
 use anyhow::Result;
 use anyhow::ensure;
@@ -43,7 +44,7 @@ pub enum QuestionType {
     TXT = 16,
 }
 
-impl TryInto<QuestionType> for i16 {
+impl TryInto<QuestionType> for u16 {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<QuestionType, Self::Error> {
@@ -69,10 +70,10 @@ impl TryInto<QuestionType> for i16 {
     }
 }
 
-impl TryInto<i16> for QuestionType {
+impl TryInto<u16> for QuestionType {
     type Error = anyhow::Error;
 
-    fn try_into(self) -> Result<i16, Self::Error> {
+    fn try_into(self) -> Result<u16, Self::Error> {
         Ok(match self {
             QuestionType::A => 1,
             QuestionType::NS => 2,
@@ -90,38 +91,7 @@ impl TryInto<i16> for QuestionType {
             QuestionType::MINFO => 14,
             QuestionType::MX => 15,
             QuestionType::TXT => 16,
-            _ => return Err(Error::msg(format!("Invalid QuestionType: {:?}", self))),
         })
-    }
-}
-
-#[derive(Clone, Default, Debug)]
-pub struct LabelSet {
-    pub labels: Vec<String>,
-}
-
-impl LabelSet {
-    // domain here should be of the form google.com , or more generally a set of strings seperated
-    // by '.'
-    // Only one byte can be used to encode the length of the string, so each label has a max length
-    // of 256
-    pub fn from_domain(domain: &str) -> Self {
-        let labels: Vec<String> = domain.split(".").map(|x| x.to_string()).collect();
-        Self { labels }
-    }
-
-    pub fn encode(&self) -> Result<Bytes> {
-        let mut buf: BytesMut = BytesMut::new();
-        for label in self.labels.clone() {
-            buf.put_u8(label.len().try_into()?);
-            buf.extend_from_slice(label.as_bytes());
-        }
-        buf.put(&b"\x00"[..]);
-        Ok(buf.into())
-    }
-
-    pub fn as_domain(&self) -> String {
-        self.labels.join(".")
     }
 }
 
@@ -133,102 +103,60 @@ pub struct DnsQuestion {
 }
 
 impl DnsQuestion {
-    pub fn to_bytes(&self) -> Result<Bytes> {
+    pub fn encode(&self) -> Result<Bytes> {
         let mut buf: BytesMut = BytesMut::new();
 
         // label set
         buf.extend_from_slice(&self.name.encode()?);
 
         // type
-        buf.put_i16(self.qtype.clone().try_into()?);
+        buf.put_u16(self.qtype.clone().try_into()?);
 
         // class
         buf.put_i16(1);
 
         Ok(buf.into())
     }
-}
 
-#[instrument(ret, err)]
-pub fn parse_question(buf: &Bytes, start: usize) -> Result<(DnsQuestion, usize)> {
-    // check that a null byte exists
-    let label_end = buf.iter().find(|x| **x == 0);
-    ensure!(label_end.is_some(), "No null byte in label");
-    ensure!(buf.len() > 0, "Buffer to parse question from is empty");
+    #[instrument(ret, err)]
+    pub fn decode(buf: &Bytes, start: usize) -> Result<(Self, usize)> {
+        // check that a null byte exists
+        let label_end = buf.iter().find(|x| **x == 0);
+        ensure!(label_end.is_some(), "No null byte in label");
+        ensure!(buf.len() > 0, "Buffer to parse question from is empty");
 
-    let mut q: DnsQuestion = DnsQuestion::default();
-    let mut current = start;
-    while buf[current] != 0 {
-        let length = buf[current]; // single byte is the length
-        info!("parsing label of length {length}");
+        let mut q: DnsQuestion = DnsQuestion::default();
+        let mut current = start;
+
+        // we are currently at the null byte, add 1 to move to the question type
         current += 1;
-        let label = &buf[current..current + length as usize];
-        info!("found label {}", String::from_utf8(label.to_vec())?);
-        q.name.labels.push(String::from_utf8(label.to_vec())?);
-        current += length as usize;
+        let qtype = u16::from_be_bytes(buf[current..current + 2].try_into()?);
+        q.qtype = qtype.try_into()?;
+
+        // class is the last 2 bytes
+        current += 2;
+        let class = i16::from_be_bytes(buf[current..current + 2].try_into()?);
+        q.class = class;
+
+        current += 2;
+
+        Ok((q, current))
     }
 
-    // we are currently at the null byte, add 1 to move to the question type
-    current += 1;
-    let qtype = i16::from_be_bytes(buf[current..current + 2].try_into()?);
-    q.qtype = qtype.try_into()?;
+    // the question section starts at byte 12 (after the header section)
+    // while the number of questions are located in the header
+    #[instrument(skip_all, ret, err)]
+    pub fn decode_to_vec(buf: &Bytes, num_questions: usize) -> Result<Vec<Self>> {
+        info!("Parsing questions");
+        let mut start: usize = 0;
+        let mut questions: Vec<DnsQuestion> = Vec::new();
+        for _ in 0..num_questions {
+            info!("parsing question");
+            let (q, i) = DnsQuestion::decode(&buf, start)?;
+            start += i;
+            questions.push(q);
+        }
 
-    // class is the last 2 bytes
-    current += 2;
-    let class = i16::from_be_bytes(buf[current..current + 2].try_into()?);
-    q.class = class;
-
-    current += 2;
-
-    Ok((q, current))
-}
-
-// the question section starts at byte 12 (after the header section)
-// while the number of questions are located in the header
-#[instrument(skip_all, ret, err)]
-pub fn parse_questions(buf: &Bytes, num_questions: usize) -> Result<Vec<DnsQuestion>> {
-    info!("Parsing questions");
-    let mut start: usize = 0;
-    let mut questions: Vec<DnsQuestion> = Vec::new();
-    for _ in 0..num_questions {
-        info!("parsing question");
-        let (q, i) = parse_question(&buf, start)?;
-        start += i;
-        questions.push(q);
-    }
-
-    Ok(questions)
-}
-
-#[cfg(test)]
-mod tests {
-
-    use super::*;
-    use anyhow::Result;
-
-    #[test]
-    fn test_domain_to_labels() -> Result<()> {
-        let domain = "google.com";
-        let labels = LabelSet::from_domain(&domain);
-        let expected_bytes: &[u8] = &[
-            0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00,
-        ];
-        assert_eq!(labels.encode()?, expected_bytes);
-        Ok(())
-    }
-
-    #[test]
-    fn test_labels_to_domain() -> Result<()> {
-        let b: &[u8] = &[
-            0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x03, 0x63, 0x6f, 0x6d, 0x00, 0x00, 0x01,
-            0x00, 0x01,
-        ];
-        let expected_domain = "google.com";
-        let questions = parse_questions(&Bytes::copy_from_slice(b), 1)?;
-        assert_eq!(questions.len(), 1);
-        assert_eq!(&questions[0].name.as_domain(), expected_domain);
-        assert_eq!(questions[0].class, 1);
-        assert_eq!(questions[0].qtype.clone() as i16, 1);
-        Ok(())
+        Ok(questions)
     }
 }

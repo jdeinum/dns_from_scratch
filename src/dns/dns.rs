@@ -1,7 +1,6 @@
 use super::DnsAnswer;
 use super::question::DnsQuestion;
-use crate::dns::header::{DnsHeader, DnsPacketType, parse_header};
-use crate::dns::question::parse_questions;
+use crate::dns::header::{DnsHeader, DnsPacketType};
 use anyhow::{Result, ensure};
 use bytes::{Bytes, BytesMut};
 use tokio::net::UdpSocket;
@@ -29,7 +28,7 @@ impl DnsServer {
             let (len, addr) = self.sock.recv_from(&mut buf).await?;
 
             // parse the request
-            let mut req = parse_request(Bytes::copy_from_slice(&buf[..len]))?;
+            let mut req = DnsMessage::decode(Bytes::copy_from_slice(&buf[..len]))?;
             info!("parsed request {req:?}");
 
             // change the request to a resp
@@ -57,36 +56,50 @@ struct DnsMessage {
 }
 
 impl DnsMessage {
-    pub fn to_bytes(&self) -> Result<Bytes> {
+    pub fn encode(&self) -> Result<Bytes> {
         let mut buf: BytesMut = BytesMut::new();
-        buf.extend_from_slice(&self.header.write_header());
+        buf.extend_from_slice(&self.header.encode());
+
+        // encode questions
         for q in self.questions.clone() {
-            buf.extend_from_slice(&q.to_bytes()?);
+            buf.extend_from_slice(&q.encode()?);
+        }
+
+        // encode answers
+        for a in self.answers.clone() {
+            buf.extend_from_slice(&a.encode()?);
         }
 
         Ok(buf.into())
     }
-}
 
-#[instrument(skip_all, ret, err)]
-fn parse_request(buf: Bytes) -> Result<DnsMessage> {
-    // first 12 bytes are the header
-    ensure!(buf.len() >= 12, "request is less than 12 bytes long");
+    #[instrument(skip_all, ret, err)]
+    pub fn decode(buf: Bytes) -> Result<Self> {
+        // first 12 bytes are the header
+        ensure!(buf.len() >= 12, "request is less than 12 bytes long");
 
-    // parse the header
-    let dns_header = parse_header(&buf)?;
+        // parse the header
+        let dns_header = DnsHeader::decode(&buf)?;
 
-    // parse the questions
-    let questions = parse_questions(
-        &Bytes::copy_from_slice(&buf[12..]),
-        dns_header.question_count.into(),
-    )?;
+        // parse the questions
+        let questions = DnsQuestion::decode_to_vec(
+            &Bytes::copy_from_slice(&buf[12..]),
+            dns_header.question_count.into(),
+        )?;
 
-    Ok(DnsMessage {
-        header: dns_header,
-        questions,
-        answers: Vec::new(),
-    })
+        // parse the answers
+
+        Ok(Self {
+            header: dns_header,
+            questions,
+            answers: Vec::new(),
+        })
+    }
+
+    pub fn as_reply(mut self) -> Self {
+        self.header.query_type = DnsPacketType::Response;
+        self
+    }
 }
 
 #[cfg(test)]
@@ -116,8 +129,8 @@ mod tests {
             if h.v.len() != 12 {
                 return TestResult::discard()
             }
-            let header = parse_header(&Bytes::copy_from_slice(&h.v[..12])).unwrap();
-            let encoded_header = header.write_header();
+            let header = DnsHeader::decode(&Bytes::copy_from_slice(&h.v[..12])).unwrap();
+            let encoded_header = header.encode();
             TestResult::from_bool(encoded_header == &h.v)
         }
     }
