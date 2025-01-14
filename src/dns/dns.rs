@@ -1,10 +1,11 @@
-use super::DnsAnswer;
-use super::question::DnsQuestion;
+use crate::dns::DnsAnswerSet;
+use crate::dns::DnsQuestionSet;
 use crate::dns::header::{DnsHeader, DnsPacketType};
+use crate::parse::DnsData;
 use anyhow::{Result, ensure};
 use bytes::{Bytes, BytesMut};
 use tokio::net::UdpSocket;
-use tracing::{info, instrument};
+use tracing::info;
 
 #[derive(Debug)]
 pub struct DnsServer {
@@ -28,14 +29,15 @@ impl DnsServer {
             let (len, addr) = self.sock.recv_from(&mut buf).await?;
 
             // parse the request
-            let mut req = DnsMessage::decode(Bytes::copy_from_slice(&buf[..len]))?;
+            let (_, req) = DnsMessage::decode(&Bytes::copy_from_slice(&buf[..len]), 0)?;
             info!("parsed request {req:?}");
 
-            // change the request to a resp
-            req.header.query_type = DnsPacketType::Response;
+            // convert the request into a response
+            let answers: DnsAnswerSet = DnsAnswerSet::from_questions(req.questions.clone())?;
+            let reply = req.as_reply().with_answers(answers)?;
 
-            let _ = self.sock.send_to(&buf[..len], addr).await?;
-            info!("send response {req:?}");
+            let _ = self.sock.send_to(&reply.encode()?, addr).await?;
+            info!("send response {reply:?}");
         }
     }
 
@@ -51,87 +53,56 @@ impl DnsServer {
 #[derive(Debug)]
 struct DnsMessage {
     pub header: DnsHeader,
-    pub questions: Vec<DnsQuestion>,
-    pub answers: Vec<DnsAnswer>,
+    pub questions: DnsQuestionSet,
+    pub answers: DnsAnswerSet,
 }
 
-impl DnsMessage {
-    pub fn encode(&self) -> Result<Bytes> {
+impl DnsData for DnsMessage {
+    fn encode(&self) -> Result<Bytes> {
         let mut buf: BytesMut = BytesMut::new();
-        buf.extend_from_slice(&self.header.encode());
+        buf.extend_from_slice(&self.header.encode()?);
 
         // encode questions
-        for q in self.questions.clone() {
-            buf.extend_from_slice(&q.encode()?);
-        }
+        buf.extend_from_slice(&self.questions.encode(self.header.question_count as usize)?);
 
         // encode answers
-        for a in self.answers.clone() {
-            buf.extend_from_slice(&a.encode()?);
-        }
+        buf.extend_from_slice(
+            &self
+                .answers
+                .encode(self.header.answer_record_count as usize)?,
+        );
 
         Ok(buf.into())
     }
 
-    #[instrument(skip_all, ret, err)]
-    pub fn decode(buf: Bytes) -> Result<Self> {
+    fn decode(buf: &Bytes, pos: usize) -> Result<(usize, Self)> {
         // first 12 bytes are the header
         ensure!(buf.len() >= 12, "request is less than 12 bytes long");
 
         // parse the header
-        let dns_header = DnsHeader::decode(&buf)?;
+        let (current, header) = DnsHeader::decode(buf, pos)?;
 
         // parse the questions
-        let questions = DnsQuestion::decode_to_vec(
-            &Bytes::copy_from_slice(&buf[12..]),
-            dns_header.question_count.into(),
-        )?;
+        let (current, questions) =
+            DnsQuestionSet::decode(buf, current, header.question_count as usize)?;
 
-        // parse the answers
-
-        Ok(Self {
-            header: dns_header,
+        Ok((current, Self {
+            header,
             questions,
-            answers: Vec::new(),
-        })
+            answers: DnsAnswerSet::default(),
+        }))
     }
+}
 
+impl DnsMessage {
     pub fn as_reply(mut self) -> Self {
         self.header.query_type = DnsPacketType::Response;
         self
     }
-}
 
-#[cfg(test)]
-mod tests {
-
-    #[derive(Clone, Debug)]
-    struct Header {
-        pub v: Vec<u8>,
-    }
-
-    impl Arbitrary for Header {
-        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-            let mut v = Vec::with_capacity(12);
-            for _ in 0..12 {
-                v.push(u8::arbitrary(g))
-            }
-            Header { v }
-        }
-    }
-
-    use super::*;
-    use quickcheck::Arbitrary;
-    use quickcheck::TestResult;
-    use quickcheck::quickcheck;
-    quickcheck! {
-        fn decode_encode_header(h: Header) -> TestResult {
-            if h.v.len() != 12 {
-                return TestResult::discard()
-            }
-            let header = DnsHeader::decode(&Bytes::copy_from_slice(&h.v[..12])).unwrap();
-            let encoded_header = header.encode();
-            TestResult::from_bool(encoded_header == &h.v)
-        }
+    pub fn with_answers(mut self, answer: DnsAnswerSet) -> Result<Self> {
+        self.header.answer_record_count = answer.answers.len().try_into()?;
+        self.answers = answer;
+        Ok(self)
     }
 }

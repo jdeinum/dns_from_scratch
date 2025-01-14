@@ -1,6 +1,6 @@
+use crate::parse::{DnsData, parse_u16};
 use anyhow::Result;
 use bytes::{BufMut, Bytes, BytesMut};
-use tracing::instrument;
 
 #[derive(Debug, PartialEq, Eq, Default)]
 pub enum DnsPacketType {
@@ -26,8 +26,8 @@ pub struct DnsHeader {
     pub additional_record_count: u16,
 }
 
-impl DnsHeader {
-    pub fn encode(&self) -> Bytes {
+impl DnsData for DnsHeader {
+    fn encode(&self) -> Result<Bytes> {
         let mut buf = BytesMut::new();
 
         // Packet ID
@@ -64,7 +64,7 @@ impl DnsHeader {
         buf.extend_from_slice(&self.authority_record_count.to_be_bytes());
         buf.extend_from_slice(&self.additional_record_count.to_be_bytes());
 
-        buf.into()
+        Ok(buf.into())
     }
 
     // Field 	                            Size 	    Description
@@ -81,8 +81,7 @@ impl DnsHeader {
     // Answer Record Count (ANCOUNT) 	    16 bits 	Number of records in the Answer section.
     // Authority Record Count (NSCOUNT) 	16 bits 	Number of records in the Authority section.
     // Additional Record Count (ARCOUNT) 	16 bits 	Number of records in the Additional section.
-    #[instrument(skip_all, ret, err)]
-    pub fn decode(buf: [u8; 12]) -> Result<Self> {
+    fn decode(buf: &Bytes, pos: usize) -> Result<(usize, Self)> {
         let packet_id = u16::from_be_bytes(buf[0..2].try_into()?);
 
         let query_type = match buf[2] >> 7 {
@@ -148,7 +147,7 @@ impl DnsHeader {
 
         let additional_record_count: u16 = u16::from_be_bytes(buf[10..12].try_into()?);
 
-        Ok(Self {
+        Ok((pos + 12, Self {
             packet_id,
             query_type,
             opcode,
@@ -162,12 +161,18 @@ impl DnsHeader {
             answer_record_count,
             authority_record_count,
             additional_record_count,
-        })
+        }))
     }
 }
 
 #[cfg(test)]
 mod tests {
+
+    use super::*;
+    use crate::parse::DnsData;
+    use quickcheck::Arbitrary;
+    use quickcheck::TestResult;
+    use quickcheck::quickcheck;
 
     #[derive(Clone, Debug)]
     struct Header {
@@ -184,17 +189,13 @@ mod tests {
         }
     }
 
-    use super::*;
-    use quickcheck::Arbitrary;
-    use quickcheck::TestResult;
-    use quickcheck::quickcheck;
     quickcheck! {
         fn decode_encode_header(h: Header) -> TestResult {
             if h.v.len() != 12 {
                 return TestResult::discard()
             }
-            let header = DnsHeader::decode(&h.v[..12]).unwrap();
-            let encoded_header = header.encode();
+            let (_, header) = DnsHeader::decode(&Bytes::copy_from_slice(&h.v[..12]), 0).unwrap();
+            let encoded_header = header.encode().unwrap();
             TestResult::from_bool(encoded_header == &h.v)
         }
     }

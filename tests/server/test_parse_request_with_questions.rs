@@ -21,7 +21,7 @@ async fn test_parse_request_questions() -> Result<()> {
     // questions
     let mut questions: Vec<DnsQuestion> = Vec::new();
     questions.push(DnsQuestion {
-        name: LabelSet::from_domain("google.com"),
+        name: LabelSet::from_domain("google.com")?,
         class: 1,
         qtype: QuestionType::A,
     });

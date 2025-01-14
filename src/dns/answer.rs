@@ -1,22 +1,26 @@
-use super::{QuestionType, label};
+use super::DnsQuestionSet;
+use crate::dns::DnsQuestion;
+use crate::dns::QuestionType;
 use crate::dns::label::LabelSet;
+use crate::parse::DnsData;
+use crate::parse::parse_data;
+use crate::parse::parse_u16;
+use crate::parse::parse_u32;
 use anyhow::Result;
+use anyhow::ensure;
 use bytes::{BufMut, Bytes, BytesMut};
-use std::net::Ipv4Addr;
 
 #[derive(Clone, Debug, Default)]
 pub struct DnsAnswer {
     pub name: LabelSet,
     pub qtype: QuestionType,
-    pub class: i16,
-    pub ttl: i32,
-    pub data: Vec<Ipv4Addr>,
+    pub class: u16,
+    pub ttl: u32,
+    pub data: Bytes,
 }
 
-impl DnsAnswer {
-    pub fn encode(&self) -> Result<Bytes> {
-        println!("encoding the following: {:?}", &self);
-
+impl DnsData for DnsAnswer {
+    fn encode(&self) -> Result<Bytes> {
         let mut buf = BytesMut::new();
 
         // label set
@@ -26,105 +30,108 @@ impl DnsAnswer {
         buf.put_u16(self.qtype.clone().try_into()?);
 
         // class
-        buf.put_i16(self.class);
+        buf.put_u16(self.class);
 
         // tll -- hardcoded for now
-        buf.put_i32(self.ttl);
+        buf.put_u32(self.ttl);
 
         // length -- each IP is 4 bytes
         buf.put_u16(self.data.len() as u16 * 4);
 
         // data
-        // ipv4 has to_bits, but it returns them according to native endianess
-        // so we just encode them manually
-        for ip in self.data.clone() {
-            let x = ip.octets();
-            buf.put_u8(x[3]);
-            buf.put_u8(x[2]);
-            buf.put_u8(x[1]);
-            buf.put_u8(x[0]);
+        buf.extend_from_slice(&self.data);
+
+        Ok(buf.into())
+    }
+
+    fn decode(buf: &Bytes, pos: usize) -> Result<(usize, Self)> {
+        // get the domain
+        let (current, name) = LabelSet::decode(buf, pos)?;
+
+        // qtype
+        let (current, qtype) = {
+            let (c, q) = parse_u16(&buf, current)?;
+            let qtype: QuestionType = q.try_into()?;
+            (c, qtype)
+        };
+
+        // class
+        let (current, class) = parse_u16(&buf, current)?;
+
+        // ttl
+        let (current, ttl) = parse_u32(&buf, current)?;
+
+        // parse the length
+        let (current, data_length) = parse_u16(&buf, current)?;
+
+        // parse the data according to the length and type
+        let (current, data) = parse_data(buf, current, data_length as usize)?;
+
+        Ok((current, Self {
+            name,
+            qtype,
+            ttl,
+            class,
+            data,
+        }))
+    }
+}
+
+impl DnsAnswer {
+    // TODO
+    pub fn from_question(_q: DnsQuestion) -> Result<Self> {
+        Ok(Self::default())
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct DnsAnswerSet {
+    pub answers: Vec<DnsAnswer>,
+}
+
+impl DnsAnswerSet {
+    pub fn encode(&self, num_answers: usize) -> Result<Bytes> {
+        // quick check to make sure we always encode all of the questions
+        ensure!(
+            num_answers == self.answers.len(),
+            "num answers doesn't match vec length"
+        );
+
+        // encode the questions
+        let mut buf = BytesMut::new();
+        for a in self.answers.clone() {
+            buf.extend_from_slice(&a.encode()?)
         }
 
         Ok(buf.into())
     }
 
-    // num_answers is located in the header of the DNS message
-    pub fn decode(buf: Bytes, num_answers: u16) -> Result<(Self, usize)> {
-        // parse the domain we are answering
-        let domain_end_index = buf
-            .iter()
-            .enumerate()
-            .find(|(_, x)| **x == 0)
-            .map(|(i, _)| i)
-            .ok_or(anyhow::Error::msg("No null byte found in answer domain"))?;
-        let domain = LabelSet::decode(buf[..domain_end_index])?;
+    pub fn decode(buf: &Bytes, pos: usize, num_answers: usize) -> Result<(usize, Self)> {
+        let mut res = Self::default();
+        let mut current = pos;
 
-        // index for parsing the rest of the message
-        let mut current = domain_end_index + 1;
-
-        // qtype
-        let qtype = u16::from_be_bytes(buf[current..current + 2].try_into()?);
-        let qtype: QuestionType = qtype.try_into()?;
-        current += 2;
-
-        // class
-        let class = i16::from_be_bytes(buf[current..current + 2].try_into()?);
-        current += 2;
-
-        // ttl
-        let ttl = i32::from_be_bytes(buf[current..current + 4].try_into()?);
-        current += 4;
-
-        // currently we are only interested in parsing A messages
-        // which maps domain names to IP addresses
-        let mut a: Vec<Ipv4Addr> = Vec::new();
         for _ in 0..num_answers {
-            // each entry is 4 bytes
-            let first_byte = buf[current + 3];
-            let second_byte = buf[current + 2];
-            let third_byte = buf[current + 1];
-            let fourth_byte = buf[current + 0];
-
-            a.push(Ipv4Addr::new(
-                first_byte,
-                second_byte,
-                third_byte,
-                fourth_byte,
-            ));
-            current += 4;
+            let (c, a) = DnsAnswer::decode(buf, current)?;
+            res.answers.push(a);
+            current = c;
         }
 
-        Ok((
-            DnsAnswer {
-                name: domain,
-                qtype,
-                class,
-                ttl,
-                data: a,
-            },
-            current,
-        ))
+        Ok((current, res))
+    }
+}
+
+impl DnsAnswerSet {
+    pub fn from_questions(questions: DnsQuestionSet) -> Result<Self> {
+        // TODO: Use rayon or something to make this concurrent
+        let answers: Result<Vec<DnsAnswer>> = questions
+            .questions
+            .into_iter()
+            .map(|q| DnsAnswer::from_question(q))
+            .collect();
+        let answers = answers?;
+        Ok(Self { answers })
     }
 }
 
 #[cfg(test)]
-mod tests {
-
-    use super::*;
-
-    #[test]
-    fn test_ip_encode_endianess() -> Result<()> {
-        let mut test_answer = DnsAnswer::default();
-        let test_ip: Ipv4Addr = Ipv4Addr::new(1, 2, 3, 4);
-        test_answer.qtype = QuestionType::A;
-        test_answer.data.push(test_ip);
-
-        let encoded = test_answer.encode()?;
-        println!("encoded: {:?}", encoded);
-        let decoded = DnsAnswer::decode(encoded, 0, 1)?;
-        println!("decoded: {:?}", decoded);
-
-        assert_eq!(decoded.0.data[0], test_ip);
-        Ok(())
-    }
-}
+mod tests {}
