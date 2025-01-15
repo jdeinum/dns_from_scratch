@@ -9,6 +9,7 @@ use crate::parse::parse_u32;
 use anyhow::Result;
 use anyhow::ensure;
 use bytes::{BufMut, Bytes, BytesMut};
+use tracing::instrument;
 
 #[derive(Clone, Debug, Default)]
 pub struct DnsAnswer {
@@ -20,6 +21,7 @@ pub struct DnsAnswer {
 }
 
 impl DnsData for DnsAnswer {
+    #[instrument(name = "Encoding DNS Answer", skip_all)]
     fn encode(&self) -> Result<Bytes> {
         let mut buf = BytesMut::new();
 
@@ -44,6 +46,7 @@ impl DnsData for DnsAnswer {
         Ok(buf.into())
     }
 
+    #[instrument(name = "Decoding DNS Answer", skip_all, ret)]
     fn decode(buf: &Bytes, pos: usize) -> Result<(usize, Self)> {
         // get the domain
         let (current, name) = LabelSet::decode(buf, pos)?;
@@ -84,7 +87,7 @@ impl DnsAnswer {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct DnsAnswerSet {
     pub answers: Vec<DnsAnswer>,
 }
@@ -134,4 +137,83 @@ impl DnsAnswerSet {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+
+    use super::*;
+    use quickcheck::Arbitrary;
+    use quickcheck::TestResult;
+    use quickcheck::quickcheck;
+
+    impl Arbitrary for DnsAnswer {
+        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            let chars = [
+                '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+            ];
+
+            // generate some number of labels
+            let num_labels = (u8::arbitrary(g) % 5) + 2;
+
+            // generate the labels
+            // note that we have no way of knowing whether they are larger than 256 chars
+            let mut name: LabelSet = LabelSet::default();
+            for _ in 0..num_labels {
+                let label_size = (u8::arbitrary(g) % 5) + 1;
+                let mut label = Vec::new();
+
+                for _ in 0..label_size {
+                    label.push(u8::arbitrary(g) % 16);
+                }
+
+                name.labels.push(
+                    label
+                        .iter()
+                        .map(|x| chars.get(*x as usize).unwrap())
+                        .collect::<String>(),
+                );
+            }
+
+            let class = u16::arbitrary(g);
+            let qtype = (u16::arbitrary(g) % 16) + 1;
+            let qtype: QuestionType = qtype.try_into().unwrap();
+            let ttl: u32 = (u32::arbitrary(g) % 256) + 5;
+            let mut data: Vec<u8> = Vec::new();
+
+            for _ in 0..4 {
+                data.push(u8::arbitrary(g));
+            }
+
+            Self {
+                name,
+                class,
+                qtype,
+                ttl,
+                data: data.into(),
+            }
+        }
+    }
+
+    impl Arbitrary for DnsAnswerSet {
+        fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            // generate the number of questions in this request
+            let num_answers = u8::arbitrary(g) % 5;
+
+            // generate that number of questions
+            let mut answers = Vec::new();
+            for _ in 0..num_answers {
+                let q = DnsAnswer::arbitrary(g);
+                answers.push(q);
+            }
+
+            Self { answers }
+        }
+    }
+
+    quickcheck! {
+        fn encode_decode_answers(h: DnsQuestionSet) -> TestResult {
+            let buf = h.encode(h.questions.len()).unwrap();
+            let (_, questions) = DnsQuestionSet::decode(&buf, 0, h.questions.len()).unwrap();
+            assert_eq!(questions, h);
+            TestResult::passed()
+        }
+    }
+}

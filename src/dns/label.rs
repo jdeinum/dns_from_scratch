@@ -4,6 +4,7 @@ use anyhow::Result;
 use bytes::BufMut;
 use bytes::Bytes;
 use bytes::BytesMut;
+use tracing::instrument;
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub struct LabelSet {
@@ -11,6 +12,7 @@ pub struct LabelSet {
 }
 
 impl DnsData for LabelSet {
+    #[instrument(name = "Encoding Label", skip_all)]
     fn encode(&self) -> Result<Bytes> {
         let mut buf: BytesMut = BytesMut::new();
         for label in self.labels.clone() {
@@ -21,6 +23,7 @@ impl DnsData for LabelSet {
         Ok(buf.into())
     }
 
+    #[instrument(name = "Decoding Label", skip_all, ret)]
     fn decode(buf: &Bytes, pos: usize) -> Result<(usize, Self)> {
         let mut res = Self::default();
         let mut current = pos;
@@ -29,7 +32,7 @@ impl DnsData for LabelSet {
             res.labels.push(label);
             current = c;
         }
-        Ok((current, res))
+        Ok((current + 1, res)) // + 1 to put us one past the null byte
     }
 }
 

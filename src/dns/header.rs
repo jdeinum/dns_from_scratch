@@ -1,15 +1,16 @@
-use crate::parse::{DnsData, parse_u16};
+use crate::parse::DnsData;
 use anyhow::Result;
 use bytes::{BufMut, Bytes, BytesMut};
+use tracing::instrument;
 
-#[derive(Debug, PartialEq, Eq, Default)]
+#[derive(Debug, PartialEq, Eq, Default, Clone)]
 pub enum DnsPacketType {
     #[default]
     Query = 0,
     Response = 1,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct DnsHeader {
     pub packet_id: u16,
     pub query_type: DnsPacketType,
@@ -27,6 +28,7 @@ pub struct DnsHeader {
 }
 
 impl DnsData for DnsHeader {
+    #[instrument(name = "Encoding DNS Header", skip_all)]
     fn encode(&self) -> Result<Bytes> {
         let mut buf = BytesMut::new();
 
@@ -81,6 +83,7 @@ impl DnsData for DnsHeader {
     // Answer Record Count (ANCOUNT) 	    16 bits 	Number of records in the Answer section.
     // Authority Record Count (NSCOUNT) 	16 bits 	Number of records in the Authority section.
     // Additional Record Count (ARCOUNT) 	16 bits 	Number of records in the Additional section.
+    #[instrument(name = "Decoding DNS Header", skip_all, ret)]
     fn decode(buf: &Bytes, pos: usize) -> Result<(usize, Self)> {
         let packet_id = u16::from_be_bytes(buf[0..2].try_into()?);
 
@@ -174,29 +177,56 @@ mod tests {
     use quickcheck::TestResult;
     use quickcheck::quickcheck;
 
-    #[derive(Clone, Debug)]
-    struct Header {
-        pub v: Vec<u8>,
+    impl From<bool> for DnsPacketType {
+        fn from(value: bool) -> Self {
+            match value {
+                false => DnsPacketType::Query,
+                true => DnsPacketType::Response,
+            }
+        }
     }
 
-    impl Arbitrary for Header {
+    impl Arbitrary for DnsHeader {
         fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-            let mut v = Vec::with_capacity(12);
-            for _ in 0..12 {
-                v.push(u8::arbitrary(g))
+            let packet_id = u16::arbitrary(g);
+            let query_type: DnsPacketType = bool::arbitrary(g).into();
+            let opcode = u8::arbitrary(g);
+            let auth_answer = bool::arbitrary(g);
+            let truncation = bool::arbitrary(g);
+            let recursion_desired = bool::arbitrary(g);
+            let recursion_available = bool::arbitrary(g);
+            let reserved = u8::arbitrary(g);
+            let response_code = u8::arbitrary(g);
+            let question_count = u16::arbitrary(g);
+            let answer_record_count = u16::arbitrary(g);
+            let authority_record_count = u16::arbitrary(g);
+            let additional_record_count = u16::arbitrary(g);
+
+            Self {
+                packet_id,
+                query_type,
+                opcode,
+                auth_answer,
+                truncation,
+                recursion_desired,
+                recursion_available,
+                reserved,
+                response_code,
+                question_count,
+                answer_record_count,
+                additional_record_count,
+                authority_record_count,
             }
-            Header { v }
         }
     }
 
     quickcheck! {
-        fn decode_encode_header(h: Header) -> TestResult {
-            if h.v.len() != 12 {
-                return TestResult::discard()
-            }
-            let (_, header) = DnsHeader::decode(&Bytes::copy_from_slice(&h.v[..12]), 0).unwrap();
-            let encoded_header = header.encode().unwrap();
-            TestResult::from_bool(encoded_header == &h.v)
+        fn decode_encode_header(h: DnsHeader) -> TestResult {
+            let encoded_header = DnsHeader::encode(&h).unwrap();
+            let (index, decoded_header) = DnsHeader::decode(&encoded_header, 0).unwrap();
+            assert_eq!(index, 12); // header is 12 bytes long, which means we should be at byte 12
+            assert_eq!(decoded_header, h);
+            TestResult::passed()
         }
     }
 }

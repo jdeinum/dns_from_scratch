@@ -1,5 +1,6 @@
 use anyhow::{Result, ensure};
 use bytes::Bytes;
+use tracing::{debug, instrument};
 
 pub trait DnsData: Sized {
     fn encode(&self) -> Result<Bytes>;
@@ -13,6 +14,7 @@ pub fn parse_u8(buf: &Bytes, pos: usize) -> Result<(usize, u8)> {
     ))
 }
 
+#[instrument(skip_all, ret)]
 pub fn parse_u16(buf: &Bytes, pos: usize) -> Result<(usize, u16)> {
     Ok((
         pos + 2,
@@ -27,14 +29,16 @@ pub fn parse_u32(buf: &Bytes, pos: usize) -> Result<(usize, u32)> {
     ))
 }
 
+#[instrument(skip_all, ret)]
 pub fn parse_string(buf: &Bytes, pos: usize) -> Result<(usize, String)> {
     // first we'll read the length of the string
-    let length = usize::from_be_bytes(buf.slice(pos..pos + 1).as_ref().try_into()?);
-    ensure!(length < u8::MAX as usize, "String too large");
+    let (current, length) = parse_u8(buf, pos)?;
+    debug!("Parsing string of length {length}");
+    ensure!(length < u8::MAX, "String too large");
 
     Ok((
-        pos + 1 + length,
-        String::from_utf8(buf.slice(pos + 1..pos + 1 + length).to_vec())?,
+        current + length as usize,
+        String::from_utf8(buf.slice(current..current + length as usize).to_vec())?,
     ))
 }
 

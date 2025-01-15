@@ -15,6 +15,7 @@ pub struct DnsQuestion {
 }
 
 impl DnsData for DnsQuestion {
+    #[instrument(name = "Encoding DNS Question", skip_all)]
     fn encode(&self) -> Result<Bytes> {
         let mut buf: BytesMut = BytesMut::new();
 
@@ -25,11 +26,11 @@ impl DnsData for DnsQuestion {
         buf.put_u16(self.qtype.clone().try_into()?);
 
         // class
-        buf.put_i16(1);
+        buf.put_u16(self.class);
 
         Ok(buf.into())
     }
-    #[instrument(ret, err)]
+    #[instrument(name = "Decoding DNS Question", skip_all, ret)]
     fn decode(buf: &Bytes, pos: usize) -> Result<(usize, Self)> {
         // decode the label
         let (current, name) = LabelSet::decode(buf, pos)?;
@@ -98,7 +99,7 @@ mod tests {
             ];
 
             // generate some number of labels
-            let num_labels = u8::arbitrary(g) % 5;
+            let num_labels = (u8::arbitrary(g) % 5) + 2;
 
             // generate the labels
             // note that we have no way of knowing whether they are larger than 256 chars
@@ -147,7 +148,8 @@ mod tests {
         fn encode_decode_questions(h: DnsQuestionSet) -> TestResult {
             let buf = h.encode(h.questions.len()).unwrap();
             let (_, questions) = DnsQuestionSet::decode(&buf, 0, h.questions.len()).unwrap();
-            TestResult::from_bool(questions == h)
+            assert_eq!(questions, h);
+            TestResult::passed()
         }
     }
 }

@@ -6,6 +6,7 @@ use anyhow::{Result, ensure};
 use bytes::{Bytes, BytesMut};
 use tokio::net::UdpSocket;
 use tracing::info;
+use tracing::instrument;
 
 #[derive(Debug)]
 pub struct DnsServer {
@@ -29,6 +30,7 @@ impl DnsServer {
             let (len, addr) = self.sock.recv_from(&mut buf).await?;
 
             // parse the request
+            info!("bytes: {:?}", &buf[..len]);
             let (_, req) = DnsMessage::decode(&Bytes::copy_from_slice(&buf[..len]), 0)?;
             info!("parsed request {req:?}");
 
@@ -58,6 +60,7 @@ struct DnsMessage {
 }
 
 impl DnsData for DnsMessage {
+    #[instrument(name = "Encoding DNS Message", skip_all)]
     fn encode(&self) -> Result<Bytes> {
         let mut buf: BytesMut = BytesMut::new();
         buf.extend_from_slice(&self.header.encode()?);
@@ -75,6 +78,7 @@ impl DnsData for DnsMessage {
         Ok(buf.into())
     }
 
+    #[instrument(name = "Decoding DNS Message", skip_all)]
     fn decode(buf: &Bytes, pos: usize) -> Result<(usize, Self)> {
         // first 12 bytes are the header
         ensure!(buf.len() >= 12, "request is less than 12 bytes long");
