@@ -191,13 +191,13 @@ mod tests {
         fn arbitrary(g: &mut quickcheck::Gen) -> Self {
             let packet_id = u16::arbitrary(g);
             let query_type: DnsPacketType = bool::arbitrary(g).into();
-            let opcode = u8::arbitrary(g);
+            let opcode = u8::arbitrary(g) & 0xf;
             let auth_answer = bool::arbitrary(g);
             let truncation = bool::arbitrary(g);
             let recursion_desired = bool::arbitrary(g);
             let recursion_available = bool::arbitrary(g);
-            let reserved = u8::arbitrary(g);
-            let response_code = u8::arbitrary(g);
+            let reserved = u8::arbitrary(g) & 0x7;
+            let response_code = u8::arbitrary(g) & 0xf;
             let question_count = u16::arbitrary(g);
             let answer_record_count = u16::arbitrary(g);
             let authority_record_count = u16::arbitrary(g);

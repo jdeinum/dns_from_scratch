@@ -94,32 +94,7 @@ mod tests {
 
     impl Arbitrary for DnsQuestion {
         fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-            let chars = [
-                '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
-            ];
-
-            // generate some number of labels
-            let num_labels = (u8::arbitrary(g) % 5) + 2;
-
-            // generate the labels
-            // note that we have no way of knowing whether they are larger than 256 chars
-            let mut name: LabelSet = LabelSet::default();
-            for _ in 0..num_labels {
-                let label_size = (u8::arbitrary(g) % 5) + 1;
-                let mut label = Vec::new();
-
-                for _ in 0..label_size {
-                    label.push(u8::arbitrary(g) % 16);
-                }
-
-                name.labels.push(
-                    label
-                        .iter()
-                        .map(|x| chars.get(*x as usize).unwrap())
-                        .collect::<String>(),
-                );
-            }
-
+            let name: LabelSet = LabelSet::arbitrary(g);
             let class = u16::arbitrary(g);
             let qtype = (u16::arbitrary(g) % 16) + 1;
             let qtype: QuestionType = qtype.try_into().unwrap();
