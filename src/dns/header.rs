@@ -41,6 +41,7 @@ impl DnsData for DnsHeader {
             byte2 |= 1 << 7; // Set QR bit for response
         }
         byte2 |= (self.opcode & 0xf) << 3;
+
         if self.auth_answer {
             byte2 |= 1 << 2;
         }
