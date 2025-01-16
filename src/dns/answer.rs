@@ -3,6 +3,7 @@ use crate::dns::DnsQuestion;
 use crate::dns::QuestionType;
 use crate::dns::label::LabelSet;
 use crate::parse::DnsData;
+use crate::parse::LabelMap;
 use crate::parse::parse_data;
 use crate::parse::parse_u16;
 use crate::parse::parse_u32;
@@ -22,11 +23,11 @@ pub struct DnsAnswer {
 
 impl DnsData for DnsAnswer {
     #[instrument(name = "Encoding DNS Answer", skip_all)]
-    fn encode(&self) -> Result<Bytes> {
+    fn encode(&self, label_map: LabelMap) -> Result<Bytes> {
         let mut buf = BytesMut::new();
 
         // label set
-        buf.extend_from_slice(&self.name.encode()?);
+        buf.extend_from_slice(&self.name.encode(label_map)?);
 
         // qtype
         buf.put_u16(self.qtype.clone().try_into()?);
@@ -47,9 +48,9 @@ impl DnsData for DnsAnswer {
     }
 
     #[instrument(name = "Decoding DNS Answer", skip_all, ret)]
-    fn decode(buf: &Bytes, pos: usize) -> Result<(usize, Self)> {
+    fn decode(buf: &Bytes, pos: usize, label_map: LabelMap) -> Result<(usize, Self)> {
         // get the domain
-        let (current, name) = LabelSet::decode(buf, pos)?;
+        let (current, name) = LabelSet::decode(buf, pos, label_map)?;
 
         // qtype
         let (current, qtype) = {
@@ -93,7 +94,7 @@ pub struct DnsAnswerSet {
 }
 
 impl DnsAnswerSet {
-    pub fn encode(&self, num_answers: usize) -> Result<Bytes> {
+    pub fn encode(&self, num_answers: usize, label_map: LabelMap) -> Result<Bytes> {
         // quick check to make sure we always encode all of the questions
         ensure!(
             num_answers == self.answers.len(),
@@ -103,18 +104,23 @@ impl DnsAnswerSet {
         // encode the questions
         let mut buf = BytesMut::new();
         for a in self.answers.clone() {
-            buf.extend_from_slice(&a.encode()?)
+            buf.extend_from_slice(&a.encode(label_map)?)
         }
 
         Ok(buf.into())
     }
 
-    pub fn decode(buf: &Bytes, pos: usize, num_answers: usize) -> Result<(usize, Self)> {
+    pub fn decode(
+        buf: &Bytes,
+        pos: usize,
+        num_answers: usize,
+        label_map: LabelMap,
+    ) -> Result<(usize, Self)> {
         let mut res = Self::default();
         let mut current = pos;
 
         for _ in 0..num_answers {
-            let (c, a) = DnsAnswer::decode(buf, current)?;
+            let (c, a) = DnsAnswer::decode(buf, current, label_map)?;
             res.answers.push(a);
             current = c;
         }
@@ -143,6 +149,7 @@ mod tests {
     use quickcheck::Arbitrary;
     use quickcheck::TestResult;
     use quickcheck::quickcheck;
+    use std::collections::HashMap;
 
     impl Arbitrary for DnsAnswer {
         fn arbitrary(g: &mut quickcheck::Gen) -> Self {
@@ -210,8 +217,9 @@ mod tests {
 
     quickcheck! {
         fn encode_decode_answers(h: DnsQuestionSet) -> TestResult {
-            let buf = h.encode(h.questions.len()).unwrap();
-            let (_, questions) = DnsQuestionSet::decode(&buf, 0, h.questions.len()).unwrap();
+            let mut m: HashMap<String, usize> = HashMap::new();
+            let buf = h.encode(h.questions.len(), &mut m).unwrap();
+            let (_, questions) = DnsQuestionSet::decode(&buf, 0, h.questions.len(), &mut m).unwrap();
             assert_eq!(questions, h);
             TestResult::passed()
         }

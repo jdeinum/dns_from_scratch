@@ -2,8 +2,10 @@ use crate::dns::DnsAnswerSet;
 use crate::dns::DnsQuestionSet;
 use crate::dns::header::{DnsHeader, DnsPacketType};
 use crate::parse::DnsData;
+use crate::parse::LabelMap;
 use anyhow::{Result, ensure};
 use bytes::{Bytes, BytesMut};
+use std::collections::HashMap;
 use tokio::net::UdpSocket;
 use tracing::info;
 use tracing::instrument;
@@ -29,16 +31,23 @@ impl DnsServer {
         loop {
             let (len, addr) = self.sock.recv_from(&mut buf).await?;
 
+            // a hashmap use for decoding the request and encoding the response
+            let mut label_map: HashMap<String, usize> = HashMap::new();
+
             // parse the request
             info!("bytes: {:?}", &buf[..len]);
-            let (_, req) = DnsMessage::decode(&Bytes::copy_from_slice(&buf[..len]), 0)?;
+            let (_, req) =
+                DnsMessage::decode(&Bytes::copy_from_slice(&buf[..len]), 0, &mut label_map)?;
             info!("parsed request {req:?}");
 
             // convert the request into a response
             let answers: DnsAnswerSet = DnsAnswerSet::from_questions(req.questions.clone())?;
             let reply = req.as_reply().with_answers(answers)?;
 
-            let _ = self.sock.send_to(&reply.encode()?, addr).await?;
+            let _ = self
+                .sock
+                .send_to(&reply.encode(&mut label_map)?, addr)
+                .await?;
             info!("send response {reply:?}");
         }
     }
@@ -61,34 +70,38 @@ struct DnsMessage {
 
 impl DnsData for DnsMessage {
     #[instrument(name = "Encoding DNS Message", skip_all)]
-    fn encode(&self) -> Result<Bytes> {
+    fn encode(&self, label_map: LabelMap) -> Result<Bytes> {
         let mut buf: BytesMut = BytesMut::new();
-        buf.extend_from_slice(&self.header.encode()?);
+        buf.extend_from_slice(&self.header.encode(label_map)?);
 
         // encode questions
-        buf.extend_from_slice(&self.questions.encode(self.header.question_count as usize)?);
+        buf.extend_from_slice(
+            &self
+                .questions
+                .encode(self.header.question_count as usize, label_map)?,
+        );
 
         // encode answers
         buf.extend_from_slice(
             &self
                 .answers
-                .encode(self.header.answer_record_count as usize)?,
+                .encode(self.header.answer_record_count as usize, label_map)?,
         );
 
         Ok(buf.into())
     }
 
     #[instrument(name = "Decoding DNS Message", skip_all)]
-    fn decode(buf: &Bytes, pos: usize) -> Result<(usize, Self)> {
+    fn decode(buf: &Bytes, pos: usize, label_map: LabelMap) -> Result<(usize, Self)> {
         // first 12 bytes are the header
         ensure!(buf.len() >= 12, "request is less than 12 bytes long");
 
         // parse the header
-        let (current, header) = DnsHeader::decode(buf, pos)?;
+        let (current, header) = DnsHeader::decode(buf, pos, label_map)?;
 
         // parse the questions
         let (current, questions) =
-            DnsQuestionSet::decode(buf, current, header.question_count as usize)?;
+            DnsQuestionSet::decode(buf, current, header.question_count as usize, label_map)?;
 
         Ok((current, Self {
             header,

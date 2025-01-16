@@ -1,10 +1,14 @@
 use anyhow::{Result, ensure};
 use bytes::Bytes;
+use std::collections::HashMap;
 use tracing::{debug, instrument};
 
+pub type LabelMap<'a> = &'a mut HashMap<String, usize>;
+
 pub trait DnsData: Sized {
-    fn encode(&self) -> Result<Bytes>;
-    fn decode(buf: &Bytes, pos: usize) -> Result<(usize, Self)>;
+    // encoding requires
+    fn encode(&self, label_map: LabelMap) -> Result<Bytes>;
+    fn decode(buf: &Bytes, pos: usize, label_map: LabelMap) -> Result<(usize, Self)>;
 }
 
 pub fn parse_u8(buf: &Bytes, pos: usize) -> Result<(usize, u8)> {

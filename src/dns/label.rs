@@ -1,4 +1,5 @@
 use crate::parse::DnsData;
+use crate::parse::LabelMap;
 use crate::parse::parse_string;
 use anyhow::Result;
 use bytes::BufMut;
@@ -13,7 +14,7 @@ pub struct LabelSet {
 
 impl DnsData for LabelSet {
     #[instrument(name = "Encoding Label", skip_all)]
-    fn encode(&self) -> Result<Bytes> {
+    fn encode(&self, _: LabelMap) -> Result<Bytes> {
         let mut buf: BytesMut = BytesMut::new();
         for label in self.labels.clone() {
             buf.put_u8(label.len().try_into()?);
@@ -24,7 +25,7 @@ impl DnsData for LabelSet {
     }
 
     #[instrument(name = "Decoding Label", skip_all, ret)]
-    fn decode(buf: &Bytes, pos: usize) -> Result<(usize, Self)> {
+    fn decode(buf: &Bytes, pos: usize, _: LabelMap) -> Result<(usize, Self)> {
         let mut res = Self::default();
         let mut current = pos;
         while buf[current] != 0 {
@@ -42,6 +43,7 @@ mod tests {
     use quickcheck::Arbitrary;
     use quickcheck::TestResult;
     use quickcheck::quickcheck;
+    use std::collections::HashMap;
 
     impl Arbitrary for LabelSet {
         fn arbitrary(g: &mut quickcheck::Gen) -> Self {
@@ -79,8 +81,9 @@ mod tests {
 
     quickcheck! {
         fn decode_encode_labels(h: LabelSet) -> TestResult {
-            let encoded_label = LabelSet::encode(&h).unwrap();
-            let (_, decoded_header) = LabelSet::decode(&encoded_label, 0).unwrap();
+            let mut m: HashMap<String, usize> = HashMap::new();
+            let encoded_label = LabelSet::encode(&h, &mut m).unwrap();
+            let (_, decoded_header) = LabelSet::decode(&encoded_label, 0, &mut m).unwrap();
             assert_eq!(decoded_header, h);
             TestResult::passed()
         }

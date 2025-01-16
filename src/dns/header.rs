@@ -1,4 +1,4 @@
-use crate::parse::DnsData;
+use crate::parse::{DnsData, LabelMap};
 use anyhow::Result;
 use bytes::{BufMut, Bytes, BytesMut};
 use tracing::instrument;
@@ -29,7 +29,7 @@ pub struct DnsHeader {
 
 impl DnsData for DnsHeader {
     #[instrument(name = "Encoding DNS Header", skip_all)]
-    fn encode(&self) -> Result<Bytes> {
+    fn encode(&self, _: LabelMap) -> Result<Bytes> {
         let mut buf = BytesMut::new();
 
         // Packet ID
@@ -85,7 +85,7 @@ impl DnsData for DnsHeader {
     // Authority Record Count (NSCOUNT) 	16 bits 	Number of records in the Authority section.
     // Additional Record Count (ARCOUNT) 	16 bits 	Number of records in the Additional section.
     #[instrument(name = "Decoding DNS Header", skip_all, ret)]
-    fn decode(buf: &Bytes, pos: usize) -> Result<(usize, Self)> {
+    fn decode(buf: &Bytes, pos: usize, _: LabelMap) -> Result<(usize, Self)> {
         let packet_id = u16::from_be_bytes(buf[0..2].try_into()?);
 
         let query_type = match buf[2] >> 7 {
@@ -177,6 +177,7 @@ mod tests {
     use quickcheck::Arbitrary;
     use quickcheck::TestResult;
     use quickcheck::quickcheck;
+    use std::collections::HashMap;
 
     impl From<bool> for DnsPacketType {
         fn from(value: bool) -> Self {
@@ -223,8 +224,9 @@ mod tests {
 
     quickcheck! {
         fn decode_encode_header(h: DnsHeader) -> TestResult {
-            let encoded_header = DnsHeader::encode(&h).unwrap();
-            let (index, decoded_header) = DnsHeader::decode(&encoded_header, 0).unwrap();
+            let mut m: HashMap<String, usize> = HashMap::new();
+            let encoded_header = DnsHeader::encode(&h, &mut m).unwrap();
+            let (index, decoded_header) = DnsHeader::decode(&encoded_header, 0, &mut m).unwrap();
             assert_eq!(index, 12); // header is 12 bytes long, which means we should be at byte 12
             assert_eq!(decoded_header, h);
             TestResult::passed()
