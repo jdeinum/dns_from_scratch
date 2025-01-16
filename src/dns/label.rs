@@ -45,19 +45,21 @@ mod tests {
 
     impl Arbitrary for LabelSet {
         fn arbitrary(g: &mut quickcheck::Gen) -> Self {
+            // our alphabet for domain names
+            // would be better to use the acutal allowed domain of characters
+            // TODO
             let chars = [
                 '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
             ];
 
-            // generate some number of labels
+            // use some reasonable number of labels
             let num_labels = (u8::arbitrary(g) % 5) + 2;
-
-            // generate the labels
-            // note that we have no way of knowing whether they are larger than 256 chars
             let mut labels: Vec<String> = Vec::new();
             for _ in 0..num_labels {
                 // keep them a resonable size to make testing easier
                 let label_size = (u8::arbitrary(g) % 5) + 1;
+
+                // our actual string
                 let mut label = Vec::new();
                 for _ in 0..label_size {
                     label.push(u8::arbitrary(g) % 16);
