@@ -1,10 +1,12 @@
 use crate::parse::DnsData;
 use crate::parse::LabelMap;
 use crate::parse::parse_string;
+use crate::parse::parse_u8;
 use anyhow::Result;
 use bytes::BufMut;
 use bytes::Bytes;
 use bytes::BytesMut;
+use tracing::info;
 use tracing::instrument;
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
@@ -14,27 +16,83 @@ pub struct LabelSet {
 
 impl DnsData for LabelSet {
     #[instrument(name = "Encoding Label", skip_all)]
-    fn encode(&self, _: LabelMap) -> Result<Bytes> {
+    fn encode(&self, label_map: LabelMap) -> Result<Bytes> {
         let mut buf: BytesMut = BytesMut::new();
-        for label in self.labels.clone() {
-            buf.put_u8(label.len().try_into()?);
-            buf.extend_from_slice(label.as_bytes());
+        for label_num in 0..self.labels.len() {
+            // if the label exists in the map, we write a pointer to it instead
+            let full_current_label = self.labels.clone().split_off(label_num).join(".");
+            println!("looking for label {full_current_label}");
+            match label_map.get(&full_current_label) {
+                // its in the map, add a pointer to its offset in the buffer
+                Some(offset) => {
+                    println!("found label {full_current_label} at offset {offset}");
+                    // add the pointer to the existing label
+                    let pointer: u8 = TryInto::<u8>::try_into(*offset)? | 0xc;
+                    buf.put_u8(pointer);
+                }
+                None => {
+                    let label: String = self
+                        .labels
+                        .get(label_num)
+                        .ok_or(anyhow::Error::msg("Label index out of range"))?
+                        .to_string();
+
+                    // store the label with the offset before we write the length
+                    // because the buffer currently points at where the length will be stored
+                    let offset = buf.len();
+                    println!(
+                        "did not find label {full_current_label}, storing in map at offset {offset}"
+                    );
+                    label_map.insert(full_current_label, offset);
+                    buf.put_u8(label.len().try_into()?);
+                    buf.extend_from_slice(label.as_bytes());
+                }
+            }
         }
         buf.put(&b"\x00"[..]);
         Ok(buf.into())
     }
 
     #[instrument(name = "Decoding Label", skip_all, ret)]
-    fn decode(buf: &Bytes, pos: usize, _: LabelMap) -> Result<(usize, Self)> {
+    fn decode(buf: &Bytes, pos: usize, label_map: LabelMap) -> Result<(usize, Self)> {
         let mut res = Self::default();
         let mut current = pos;
         while buf[current] != 0 {
-            let (c, label) = parse_string(buf, current)?;
-            res.labels.push(label);
-            current = c;
+            // check whether this is a pointer to an existing label set, or to a single label
+            // if it is a pointer, we just append the entries of the HashMap key to the what we
+            // have already and return it
+            if is_pointer(buf, current)? {
+                // find the entry in the label map that corresponds to the offset in the pointer
+                let (c, offset) = parse_u8(buf, current)?;
+                current = c;
+                let offset = offset & 0x3f;
+                let mut labels = label_map
+                    .iter()
+                    .find(|(_, v)| **v == offset as usize)
+                    .map(|(k, _)| k)
+                    .ok_or(anyhow::Error::msg(
+                        "No entry in label map even though its a pointer",
+                    ))?
+                    .split(".")
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>();
+
+                // append the rest of the labels and return it
+                res.labels.append(&mut labels);
+                break;
+            } else {
+                let (c, label) = parse_string(buf, current)?;
+                res.labels.push(label);
+                current = c;
+            }
         }
         Ok((current + 1, res)) // + 1 to put us one past the null byte
     }
+}
+
+fn is_pointer(buf: &Bytes, pos: usize) -> Result<bool> {
+    let (_, b) = parse_u8(buf, pos)?;
+    return Ok((b >> 6) & 0x3 == 3);
 }
 
 #[cfg(test)]

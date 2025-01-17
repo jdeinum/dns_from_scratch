@@ -20,7 +20,8 @@ impl DnsData for DnsQuestion {
     fn encode(&self, label_map: LabelMap) -> Result<Bytes> {
         let mut buf: BytesMut = BytesMut::new();
 
-        // label set
+        // first, we'll check whether the domain has an entry in the label map
+        // if so, we'll just add a pointer to the existing label in the buffer
         buf.extend_from_slice(&self.name.encode(label_map)?);
 
         // type
@@ -33,7 +34,6 @@ impl DnsData for DnsQuestion {
     }
     #[instrument(name = "Decoding DNS Question", skip_all, ret)]
     fn decode(buf: &Bytes, pos: usize, label_map: LabelMap) -> Result<(usize, Self)> {
-        // decode the label
         let (current, name) = LabelSet::decode(buf, pos, label_map)?;
 
         // question type
