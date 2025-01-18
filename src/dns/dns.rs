@@ -46,7 +46,7 @@ impl DnsServer {
 
             let _ = self
                 .sock
-                .send_to(&reply.encode(&mut label_map)?, addr)
+                .send_to(&reply.encode(0, &mut label_map)?, addr)
                 .await?;
             info!("send response {reply:?}");
         }
@@ -70,23 +70,23 @@ struct DnsMessage {
 
 impl DnsData for DnsMessage {
     #[instrument(name = "Encoding DNS Message", skip_all)]
-    fn encode(&self, label_map: LabelMap) -> Result<Bytes> {
+    fn encode(&self, _: usize, label_map: LabelMap) -> Result<Bytes> {
         let mut buf: BytesMut = BytesMut::new();
-        buf.extend_from_slice(&self.header.encode(label_map)?);
+        buf.extend_from_slice(&self.header.encode(buf.len(), label_map)?);
 
         // encode questions
-        buf.extend_from_slice(
-            &self
-                .questions
-                .encode(self.header.question_count as usize, label_map)?,
-        );
+        buf.extend_from_slice(&self.questions.encode(
+            self.header.question_count as usize,
+            label_map,
+            buf.len(),
+        )?);
 
         // encode answers
-        buf.extend_from_slice(
-            &self
-                .answers
-                .encode(self.header.answer_record_count as usize, label_map)?,
-        );
+        buf.extend_from_slice(&self.answers.encode(
+            self.header.answer_record_count as usize,
+            label_map,
+            buf.len(),
+        )?);
 
         Ok(buf.into())
     }

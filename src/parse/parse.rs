@@ -6,8 +6,14 @@ use tracing::{debug, instrument};
 pub type LabelMap<'a> = &'a mut HashMap<String, usize>;
 
 pub trait DnsData: Sized {
-    // encoding requires
-    fn encode(&self, label_map: LabelMap) -> Result<Bytes>;
+    // encoding requires the item being encoded, the position in the complete buffer that is being
+    // sent to the client (for compression purposes, like needing to know where you are in the full
+    // buffer so that you can store offsets), and the label map, which stores the offset for
+    // particular labels.
+    fn encode(&self, pos: usize, label_map: LabelMap) -> Result<Bytes>;
+
+    // decoding requires the full byte buffer, the position in that buffer where we should start
+    // decoding, and the label map, which we build up over time while decoding.
     fn decode(buf: &Bytes, pos: usize, label_map: LabelMap) -> Result<(usize, Self)>;
 }
 

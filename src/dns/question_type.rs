@@ -17,7 +17,7 @@ use anyhow::{Error, Result};
 // MINFO           14 mailbox or mail list information
 // MX              15 mail exchange
 // TXT             16 text strings
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub enum QuestionType {
     #[default]
     A = 1,

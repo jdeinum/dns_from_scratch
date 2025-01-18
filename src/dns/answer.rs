@@ -12,7 +12,7 @@ use anyhow::ensure;
 use bytes::{BufMut, Bytes, BytesMut};
 use tracing::instrument;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Hash)]
 pub struct DnsAnswer {
     pub name: LabelSet,
     pub qtype: QuestionType,
@@ -23,11 +23,11 @@ pub struct DnsAnswer {
 
 impl DnsData for DnsAnswer {
     #[instrument(name = "Encoding DNS Answer", skip_all)]
-    fn encode(&self, label_map: LabelMap) -> Result<Bytes> {
+    fn encode(&self, pos: usize, label_map: LabelMap) -> Result<Bytes> {
         let mut buf = BytesMut::new();
 
         // label set
-        buf.extend_from_slice(&self.name.encode(label_map)?);
+        buf.extend_from_slice(&self.name.encode(pos, label_map)?);
 
         // qtype
         buf.put_u16(self.qtype.clone().try_into()?);
@@ -88,23 +88,26 @@ impl DnsAnswer {
     }
 }
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Hash)]
 pub struct DnsAnswerSet {
     pub answers: Vec<DnsAnswer>,
 }
 
 impl DnsAnswerSet {
-    pub fn encode(&self, num_answers: usize, label_map: LabelMap) -> Result<Bytes> {
+    pub fn encode(&self, num_answers: usize, label_map: LabelMap, pos: usize) -> Result<Bytes> {
         // quick check to make sure we always encode all of the questions
         ensure!(
             num_answers == self.answers.len(),
             "num answers doesn't match vec length"
         );
 
+        let mut current = 0;
+
         // encode the questions
         let mut buf = BytesMut::new();
         for a in self.answers.clone() {
-            buf.extend_from_slice(&a.encode(label_map)?)
+            buf.extend_from_slice(&a.encode(pos + current, label_map)?);
+            current = buf.len();
         }
 
         Ok(buf.into())
@@ -218,7 +221,7 @@ mod tests {
     quickcheck! {
         fn encode_decode_answers(h: DnsQuestionSet) -> TestResult {
             let mut m: HashMap<String, usize> = HashMap::new();
-            let buf = h.encode(h.questions.len(), &mut m).unwrap();
+            let buf = h.encode(h.questions.len(), &mut m, 0).unwrap();
             let (_, questions) = DnsQuestionSet::decode(&buf, 0, h.questions.len(), &mut m).unwrap();
             assert_eq!(questions, h);
             TestResult::passed()

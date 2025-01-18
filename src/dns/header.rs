@@ -29,7 +29,7 @@ pub struct DnsHeader {
 
 impl DnsData for DnsHeader {
     #[instrument(name = "Encoding DNS Header", skip_all)]
-    fn encode(&self, _: LabelMap) -> Result<Bytes> {
+    fn encode(&self, _: usize, _: LabelMap) -> Result<Bytes> {
         let mut buf = BytesMut::new();
 
         // Packet ID
@@ -225,7 +225,7 @@ mod tests {
     quickcheck! {
         fn decode_encode_header(h: DnsHeader) -> TestResult {
             let mut m: HashMap<String, usize> = HashMap::new();
-            let encoded_header = DnsHeader::encode(&h, &mut m).unwrap();
+            let encoded_header = DnsHeader::encode(&h, 0, &mut m).unwrap();
             let (index, decoded_header) = DnsHeader::decode(&encoded_header, 0, &mut m).unwrap();
             assert_eq!(index, 12); // header is 12 bytes long, which means we should be at byte 12
             assert_eq!(decoded_header, h);
