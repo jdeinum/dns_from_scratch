@@ -21,8 +21,6 @@ impl DnsData for DnsQuestion {
         println!("starting to encode question at pos {pos}");
         let mut buf: BytesMut = BytesMut::new();
 
-        // first, we'll check whether the domain has an entry in the label map
-        // if so, we'll just add a pointer to the existing label in the buffer
         buf.extend_from_slice(&self.name.encode(pos, label_map)?);
 
         // type

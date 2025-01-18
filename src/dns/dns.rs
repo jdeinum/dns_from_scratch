@@ -61,8 +61,8 @@ impl DnsServer {
     }
 }
 
-#[derive(Debug)]
-struct DnsMessage {
+#[derive(Debug, Default)]
+pub struct DnsMessage {
     pub header: DnsHeader,
     pub questions: DnsQuestionSet,
     pub answers: DnsAnswerSet,

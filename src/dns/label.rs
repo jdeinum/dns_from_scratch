@@ -146,8 +146,8 @@ mod tests {
         fn decode_encode_labels(h: LabelSet) -> TestResult {
             let mut m: HashMap<String, usize> = HashMap::new();
             let encoded_label = LabelSet::encode(&h, 0, &mut m).unwrap();
-            let (_, decoded_header) = LabelSet::decode(&encoded_label, 0, &mut m).unwrap();
-            assert_eq!(decoded_header, h);
+            let (_, decoded_label) = LabelSet::decode(&encoded_label, 0, &mut m).unwrap();
+            assert_eq!(decoded_label, h);
             TestResult::passed()
         }
     }
