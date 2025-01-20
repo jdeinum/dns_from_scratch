@@ -5,7 +5,9 @@ use std::sync::LazyLock;
 use tokio::net::UdpSocket;
 
 static TRACING: LazyLock<()> = LazyLock::new(|| {
-    tracing_subscriber::fmt::init();
+    if std::env::var("TESTING_LOG").is_ok() {
+        tracing_subscriber::fmt::init();
+    }
 });
 
 pub async fn spawn_app() -> Result<String> {

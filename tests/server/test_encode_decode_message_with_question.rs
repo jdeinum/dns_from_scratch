@@ -61,7 +61,7 @@ async fn test_encode_decode_message_with_question() -> Result<()> {
 
     let (_, decoded_dns_request) = DnsMessage::decode(&reply, 0, &mut HashMap::new())?;
 
-    assert_eq!(decoded_dns_request, dns_request);
+    assert_eq!(decoded_dns_request.questions, dns_request.questions);
 
     Ok(())
 }

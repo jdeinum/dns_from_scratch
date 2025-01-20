@@ -39,6 +39,7 @@ impl DnsData for LabelSet {
                         "storing pointer"
                     );
                     buf.put_u8(pointer | 0xc0);
+                    break;
                 }
                 None => {
                     let label: String = self
@@ -69,12 +70,14 @@ impl DnsData for LabelSet {
     fn decode(buf: &Bytes, pos: usize, label_map: LabelMap) -> Result<(usize, Self)> {
         let mut res = Self::default();
         let mut current = pos;
+
+        let mut local_label: Vec<(usize, String)> = Vec::new();
+
         while buf[current] != 0 {
             // check whether this is a pointer to an existing label set, or to a single label
             // if it is a pointer, we just append the entries of the HashMap key to the what we
             // have already and return it
             if is_pointer(buf, current)? {
-                info!("found pointer");
                 // find the entry in the label map that corresponds to the offset in the pointer
                 let (c, offset) = parse_u8(buf, current)?;
                 current = c;
@@ -95,13 +98,29 @@ impl DnsData for LabelSet {
                 res.labels.append(&mut labels);
                 break;
             } else {
+                info!(offset = current, "not a pointer, parsing string");
                 let (c, label) = parse_string(buf, current)?;
-                res.labels.push(label);
-                // add the label to the map
-                label_map.insert(res.labels.join("."), current);
+                res.labels.push(label.clone());
+                local_label.push((current, label));
+                info!(offset = current, "not a pointer, parsing string");
                 current = c;
             }
         }
+        // Update the label map with the current labels
+
+        for label_num in 0..local_label.len() {
+            let offset = local_label[label_num].0;
+            let label = local_label
+                .iter()
+                .skip(label_num)
+                .map(|(_, x)| x.to_string())
+                .collect::<Vec<String>>()
+                .join(".");
+
+            info!(label = label, offset = offset, "adding label to map");
+            label_map.insert(label, offset);
+        }
+
         Ok((current + 1, res)) // + 1 to put us one past the null byte
     }
 }
