@@ -10,9 +10,10 @@ use crate::parse::parse_u32;
 use anyhow::Result;
 use anyhow::ensure;
 use bytes::{BufMut, Bytes, BytesMut};
+use tracing::info;
 use tracing::instrument;
 
-#[derive(Clone, Debug, Default, Hash)]
+#[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
 pub struct DnsAnswer {
     pub name: LabelSet,
     pub qtype: QuestionType,
@@ -24,6 +25,7 @@ pub struct DnsAnswer {
 impl DnsData for DnsAnswer {
     #[instrument(name = "Encoding DNS Answer", skip_all)]
     fn encode(&self, pos: usize, label_map: LabelMap) -> Result<Bytes> {
+        info!(position = pos, "Encoding Answer");
         let mut buf = BytesMut::new();
 
         // label set
@@ -88,7 +90,7 @@ impl DnsAnswer {
     }
 }
 
-#[derive(Default, Debug, Clone, Hash)]
+#[derive(Default, Debug, Clone, Hash, Eq, PartialEq)]
 pub struct DnsAnswerSet {
     pub answers: Vec<DnsAnswer>,
 }

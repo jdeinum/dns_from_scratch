@@ -6,6 +6,7 @@ use crate::parse::parse_u16;
 use anyhow::Result;
 use anyhow::ensure;
 use bytes::{BufMut, Bytes, BytesMut};
+use tracing::info;
 use tracing::instrument;
 
 #[derive(Default, Clone, Debug, Eq, PartialEq)]
@@ -18,7 +19,7 @@ pub struct DnsQuestion {
 impl DnsData for DnsQuestion {
     #[instrument(name = "Encoding DNS Question", skip_all)]
     fn encode(&self, pos: usize, label_map: LabelMap) -> Result<Bytes> {
-        println!("starting to encode question at pos {pos}");
+        info!(position = pos, "Encoding Question");
         let mut buf: BytesMut = BytesMut::new();
 
         buf.extend_from_slice(&self.name.encode(pos, label_map)?);

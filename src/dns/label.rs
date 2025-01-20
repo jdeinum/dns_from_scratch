@@ -6,6 +6,7 @@ use anyhow::Result;
 use bytes::BufMut;
 use bytes::Bytes;
 use bytes::BytesMut;
+use tracing::info;
 use tracing::instrument;
 
 #[derive(Clone, Default, Debug, Eq, PartialEq, Hash)]
@@ -16,18 +17,28 @@ pub struct LabelSet {
 impl DnsData for LabelSet {
     #[instrument(name = "Encoding Label", skip_all)]
     fn encode(&self, pos: usize, label_map: LabelMap) -> Result<Bytes> {
+        info!(position = pos, "Encoding label");
         let mut buf: BytesMut = BytesMut::new();
         let mut current = 0;
         for label_num in 0..self.labels.len() {
             // if the label exists in the map, we write a pointer to it instead
             let full_current_label = self.labels.clone().split_off(label_num).join(".");
+            info!(label = full_current_label, "looking for label");
             match label_map.get(&full_current_label) {
                 // its in the map, add a pointer to its offset in the buffer
                 Some(offset) => {
-                    println!("found label {full_current_label} at offset {offset}");
-                    // add the pointer to the existing label
-                    let pointer: u8 = TryInto::<u8>::try_into(*offset)? | 0xc;
-                    buf.put_u8(pointer);
+                    info!(
+                        label = full_current_label,
+                        offset = offset,
+                        "found label in label map"
+                    );
+                    let pointer: u8 = TryInto::<u8>::try_into(*offset)?;
+                    info!(
+                        offset = pointer,
+                        pointer = pointer | 0xc0,
+                        "storing pointer"
+                    );
+                    buf.put_u8(pointer | 0xc0);
                 }
                 None => {
                     let label: String = self
@@ -38,9 +49,10 @@ impl DnsData for LabelSet {
 
                     // store the label with the offset before we write the length
                     // because the buffer currently points at where the length will be stored
-                    println!(
-                        "did not find label {full_current_label}, storing in map at offset {}",
-                        pos + current
+                    info!(
+                        label = full_current_label,
+                        offset = pos + current,
+                        "did not find label, storing in map",
                     );
                     label_map.insert(full_current_label, pos + current);
                     buf.put_u8(label.len().try_into()?);
@@ -50,7 +62,6 @@ impl DnsData for LabelSet {
             current = buf.len();
         }
         buf.put(&b"\x00"[..]);
-        println!("encoding finished label map: {:?}", label_map);
         Ok(buf.into())
     }
 
@@ -63,12 +74,12 @@ impl DnsData for LabelSet {
             // if it is a pointer, we just append the entries of the HashMap key to the what we
             // have already and return it
             if is_pointer(buf, current)? {
-                println!("found pointer");
+                info!("found pointer");
                 // find the entry in the label map that corresponds to the offset in the pointer
                 let (c, offset) = parse_u8(buf, current)?;
                 current = c;
                 let offset = offset & 0x3f;
-                println!("pointer points to offset {offset:?}");
+                info!("pointer points to offset {offset:?}");
                 let mut labels = label_map
                     .iter()
                     .find(|(_, v)| **v == offset as usize)
@@ -97,6 +108,7 @@ impl DnsData for LabelSet {
 
 fn is_pointer(buf: &Bytes, pos: usize) -> Result<bool> {
     let (_, b) = parse_u8(buf, pos)?;
+    info!(offset = pos, value = b, "checking if pointer");
     return Ok((b >> 6) & 0x3 == 3);
 }
 

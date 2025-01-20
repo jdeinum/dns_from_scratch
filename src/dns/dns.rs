@@ -31,14 +31,9 @@ impl DnsServer {
         loop {
             let (len, addr) = self.sock.recv_from(&mut buf).await?;
 
-            // a hashmap use for decoding the request and encoding the response
-            let mut label_map: HashMap<String, usize> = HashMap::new();
-
             // parse the request
-            info!("bytes: {:?}", &buf[..len]);
             let (_, req) =
-                DnsMessage::decode(&Bytes::copy_from_slice(&buf[..len]), 0, &mut label_map)?;
-            info!("parsed request {req:?}");
+                DnsMessage::decode(&Bytes::copy_from_slice(&buf[..len]), 0, &mut HashMap::new())?;
 
             // convert the request into a response
             let answers: DnsAnswerSet = DnsAnswerSet::from_questions(req.questions.clone())?;
@@ -46,7 +41,7 @@ impl DnsServer {
 
             let _ = self
                 .sock
-                .send_to(&reply.encode(0, &mut label_map)?, addr)
+                .send_to(&reply.encode(0, &mut HashMap::new())?, addr)
                 .await?;
             info!("send response {reply:?}");
         }
@@ -61,7 +56,7 @@ impl DnsServer {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Eq, PartialEq)]
 pub struct DnsMessage {
     pub header: DnsHeader,
     pub questions: DnsQuestionSet,

@@ -1,7 +1,7 @@
 use crate::parse::{DnsData, LabelMap};
 use anyhow::Result;
 use bytes::{BufMut, Bytes, BytesMut};
-use tracing::instrument;
+use tracing::{info, instrument};
 
 #[derive(Debug, PartialEq, Eq, Default, Clone)]
 pub enum DnsPacketType {
@@ -29,7 +29,9 @@ pub struct DnsHeader {
 
 impl DnsData for DnsHeader {
     #[instrument(name = "Encoding DNS Header", skip_all)]
-    fn encode(&self, _: usize, _: LabelMap) -> Result<Bytes> {
+    fn encode(&self, pos: usize, _: LabelMap) -> Result<Bytes> {
+        info!(position = pos, "Encoding header");
+
         let mut buf = BytesMut::new();
 
         // Packet ID
