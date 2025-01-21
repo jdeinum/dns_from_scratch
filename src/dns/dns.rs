@@ -7,6 +7,7 @@ use anyhow::{Result, ensure};
 use bytes::{Bytes, BytesMut};
 use std::collections::HashMap;
 use tokio::net::UdpSocket;
+use tracing::debug;
 use tracing::info;
 use tracing::instrument;
 
@@ -27,9 +28,11 @@ impl DnsServer {
     }
 
     pub async fn run_until_stopped(&self) -> Result<()> {
+        debug!("our server is {}", self.sock.local_addr()?.to_string());
         let mut buf = [0; 1024];
-        let server_addr: String = std::env::args().collect::<Vec<String>>()[2].clone();
-        info!("forwarding server is {server_addr}");
+        // somehow causing some hangin?
+        // let server_addr: String = std::env::args().collect::<Vec<String>>()[2].clone();
+        // info!("forwarding server is {server_addr}");
         loop {
             let (len, addr) = self.sock.recv_from(&mut buf).await?;
             info!("got request");
@@ -128,12 +131,17 @@ pub async fn send_request(addr: &str, buf: Bytes) -> Result<Bytes> {
     let current_sock = UdpSocket::bind("127.0.0.1:0").await?;
     current_sock.connect(addr).await?;
 
+    debug!("connected to {addr}");
+
     // send data
-    current_sock.send(buf.as_ref()).await?;
+    let n = current_sock.send(buf.as_ref()).await?;
+    debug!("sent {n} bytes to {addr}");
 
     // receive response
     let mut buf: [u8; 256] = [0; 256];
     let resp = current_sock.recv(&mut buf).await?;
+
+    debug!("read {resp} bytes");
     Ok(Bytes::copy_from_slice(&buf[..resp]))
 }
 
