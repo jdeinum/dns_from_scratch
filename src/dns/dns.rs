@@ -28,22 +28,26 @@ impl DnsServer {
 
     pub async fn run_until_stopped(&self) -> Result<()> {
         let mut buf = [0; 1024];
+        let server_addr: String = std::env::args().collect::<Vec<String>>()[2].clone();
+        info!("forwarding server is {server_addr}");
         loop {
             let (len, addr) = self.sock.recv_from(&mut buf).await?;
+            info!("got request");
 
             // parse the request
             let (_, req) =
                 DnsMessage::decode(&Bytes::copy_from_slice(&buf[..len]), 0, &mut HashMap::new())?;
 
             // convert the request into a response
-            let answers: DnsAnswerSet = DnsAnswerSet::from_questions(req.questions.clone())?;
-            let reply = req.as_reply().with_answers(answers)?;
+            // let reply = forward_to_server(&server_addr, req).await?;
+            info!("sending a response");
 
             let _ = self
                 .sock
-                .send_to(&reply.encode(0, &mut HashMap::new())?, addr)
+                .send_to(&req.encode(0, &mut HashMap::new())?, addr)
                 .await?;
-            info!("send response {reply:?}");
+
+            // info!("send response {reply:?}");
         }
     }
 
@@ -117,4 +121,31 @@ impl DnsMessage {
         self.answers = answer;
         Ok(self)
     }
+}
+
+pub async fn send_request(addr: &str, buf: Bytes) -> Result<Bytes> {
+    // connect to our server
+    let current_sock = UdpSocket::bind("127.0.0.1:0").await?;
+    current_sock.connect(addr).await?;
+
+    // send data
+    current_sock.send(buf.as_ref()).await?;
+
+    // receive response
+    let mut buf: [u8; 256] = [0; 256];
+    let resp = current_sock.recv(&mut buf).await?;
+    Ok(Bytes::copy_from_slice(&buf[..resp]))
+}
+
+pub async fn forward_to_server(server: &str, request: DnsMessage) -> Result<DnsMessage> {
+    // get the second env var, which is the server we are forwarding to
+    info!("forwarding DNS request to {server}");
+
+    let reply = send_request(server, request.encode(0, &mut HashMap::new())?).await?;
+
+    let (_, dns_response) = DnsMessage::decode(&reply, 0, &mut HashMap::new())?;
+
+    info!("received reply from {server}: {dns_response:?}");
+
+    Ok(dns_response)
 }

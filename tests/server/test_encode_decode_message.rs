@@ -1,7 +1,7 @@
-use crate::helpers::{send_request, spawn_app};
+use crate::helpers::spawn_app;
 use anyhow::Result;
 use dns::{
-    dns::{DnsAnswer, DnsMessage, DnsQuestion},
+    dns::{DnsAnswer, DnsMessage, DnsQuestion, send_request},
     parse::DnsData,
 };
 use std::collections::HashMap;

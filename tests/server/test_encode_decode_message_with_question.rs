@@ -1,4 +1,4 @@
-use crate::helpers::{send_request, spawn_app};
+use crate::helpers::spawn_app;
 use anyhow::Result;
 use dns::dns::*;
 use dns::{dns::DnsMessage, parse::DnsData};

@@ -83,13 +83,6 @@ impl DnsData for DnsAnswer {
     }
 }
 
-impl DnsAnswer {
-    // TODO
-    pub fn from_question(_q: DnsQuestion) -> Result<Self> {
-        Ok(Self::default())
-    }
-}
-
 #[derive(Default, Debug, Clone, Hash, Eq, PartialEq)]
 pub struct DnsAnswerSet {
     pub answers: Vec<DnsAnswer>,
@@ -131,19 +124,6 @@ impl DnsAnswerSet {
         }
 
         Ok((current, res))
-    }
-}
-
-impl DnsAnswerSet {
-    pub fn from_questions(questions: DnsQuestionSet) -> Result<Self> {
-        // TODO: Use rayon or something to make this concurrent
-        let answers: Result<Vec<DnsAnswer>> = questions
-            .questions
-            .into_iter()
-            .map(|q| DnsAnswer::from_question(q))
-            .collect();
-        let answers = answers?;
-        Ok(Self { answers })
     }
 }
 
