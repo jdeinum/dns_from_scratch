@@ -1,7 +1,7 @@
 use crate::parse::DnsData;
 use crate::parse::LabelMap;
 use crate::parse::parse_string;
-use crate::parse::parse_u8;
+use crate::parse::parse_u16;
 use anyhow::Result;
 use bytes::BufMut;
 use bytes::Bytes;
@@ -32,13 +32,10 @@ impl DnsData for LabelSet {
                         offset = offset,
                         "found label in label map"
                     );
-                    let pointer: u8 = TryInto::<u8>::try_into(*offset)?;
-                    info!(
-                        offset = pointer,
-                        pointer = pointer | 0xc0,
-                        "storing pointer"
-                    );
-                    buf.put_u8(pointer | 0xc0);
+                    let pointer: u16 = ((offset & 0xffff) as u16) | 0xc000; // chop anything bigger off, may not
+                    // be the best choice
+                    info!(offset = offset, pointer = pointer, "storing pointer");
+                    buf.put_u16(pointer);
                     break;
                 }
                 None => {
@@ -79,10 +76,10 @@ impl DnsData for LabelSet {
             // have already and return it
             if is_pointer(buf, current)? {
                 // find the entry in the label map that corresponds to the offset in the pointer
-                let (c, offset) = parse_u8(buf, current)?;
+                let (c, pointer) = parse_u16(buf, current)?;
                 current = c;
-                let offset = offset & 0x3f;
-                info!("pointer points to offset {offset:?}");
+                let offset = pointer & 0x3fff;
+                info!(offset = offset, pointer = pointer, "pointer found");
                 let mut labels = label_map
                     .iter()
                     .find(|(_, v)| **v == offset as usize)
@@ -126,9 +123,9 @@ impl DnsData for LabelSet {
 }
 
 fn is_pointer(buf: &Bytes, pos: usize) -> Result<bool> {
-    let (_, b) = parse_u8(buf, pos)?;
+    let (_, b) = parse_u16(buf, pos)?;
     info!(offset = pos, value = b, "checking if pointer");
-    return Ok((b >> 6) & 0x3 == 3);
+    return Ok((b >> 14) & 0x3 == 3);
 }
 
 #[cfg(test)]
