@@ -6,6 +6,7 @@ use anyhow::Result;
 use bytes::BufMut;
 use bytes::Bytes;
 use bytes::BytesMut;
+use tracing::debug;
 use tracing::info;
 use tracing::instrument;
 
@@ -80,6 +81,7 @@ impl DnsData for LabelSet {
                 current = c;
                 let offset = pointer & 0x3fff;
                 info!(offset = offset, pointer = pointer, "pointer found");
+                debug!("label map: {label_map:?}");
                 let mut labels = label_map
                     .iter()
                     .find(|(_, v)| **v == offset as usize)
@@ -104,7 +106,7 @@ impl DnsData for LabelSet {
             }
         }
         // Update the label map with the current labels
-
+        debug!(local_labels = ?local_label, "adding labels to map");
         for label_num in 0..local_label.len() {
             let offset = local_label[label_num].0;
             let label = local_label
@@ -113,9 +115,19 @@ impl DnsData for LabelSet {
                 .map(|(_, x)| x.to_string())
                 .collect::<Vec<String>>()
                 .join(".");
+            debug!(label = label, "looking for label in map");
 
-            info!(label = label, offset = offset, "adding label to map");
-            label_map.insert(label, offset);
+            if label_map.get(&label).is_none() {
+                info!(label = label, offset = offset, "adding label to map");
+                label_map.insert(label, offset);
+            } else {
+                debug!(
+                    label = label,
+                    offset = offset,
+                    "not adding label to map, already at {}",
+                    label_map.get(&label).unwrap()
+                );
+            }
         }
 
         Ok((current + 1, res)) // + 1 to put us one past the null byte
