@@ -28,7 +28,7 @@ pub struct DnsHeader {
 }
 
 impl DnsData for DnsHeader {
-    #[instrument(name = "Encoding DNS Header", skip_all)]
+    #[instrument(name = "Encoding DNS Header", skip_all, parent = None)]
     fn encode(&self, pos: usize, _: LabelMap) -> Result<Bytes> {
         info!(position = pos, "Encoding header");
 
@@ -86,7 +86,7 @@ impl DnsData for DnsHeader {
     // Answer Record Count (ANCOUNT) 	    16 bits 	Number of records in the Answer section.
     // Authority Record Count (NSCOUNT) 	16 bits 	Number of records in the Authority section.
     // Additional Record Count (ARCOUNT) 	16 bits 	Number of records in the Additional section.
-    #[instrument(name = "Decoding DNS Header", skip_all, ret)]
+    #[instrument(name = "Decoding DNS Header", skip_all, ret, parent = None)]
     fn decode(buf: &Bytes, pos: usize, _: LabelMap) -> Result<(usize, Self)> {
         let packet_id = u16::from_be_bytes(buf[0..2].try_into()?);
 

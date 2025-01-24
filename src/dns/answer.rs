@@ -23,7 +23,7 @@ pub struct DnsAnswer {
 }
 
 impl DnsData for DnsAnswer {
-    #[instrument(name = "Encoding DNS Answer", skip_all)]
+    #[instrument(name = "Encoding DNS Answer", skip_all, parent = None)]
     fn encode(&self, pos: usize, label_map: LabelMap) -> Result<Bytes> {
         info!(position = pos, "Encoding Answer");
         let mut buf = BytesMut::new();
@@ -49,7 +49,7 @@ impl DnsData for DnsAnswer {
         Ok(buf.into())
     }
 
-    #[instrument(name = "Decoding DNS Answer", skip_all, ret)]
+    #[instrument(name = "Decoding DNS Answer", skip_all, ret, parent = None)]
     fn decode(buf: &Bytes, pos: usize, label_map: LabelMap) -> Result<(usize, Self)> {
         // get the domain
         let (current, name) = LabelSet::decode(buf, pos, label_map)?;

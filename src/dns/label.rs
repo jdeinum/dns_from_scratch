@@ -22,6 +22,8 @@ impl DnsData for LabelSet {
         let mut buf: BytesMut = BytesMut::new();
         let mut current = 0;
         for label_num in 0..self.labels.len() {
+            // if the remaining labels
+
             // if the label exists in the map, we write a pointer to it instead
             let full_current_label = self.labels.clone().split_off(label_num).join(".");
             info!(label = full_current_label, "looking for label");

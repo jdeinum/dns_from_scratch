@@ -17,7 +17,7 @@ pub struct DnsQuestion {
 }
 
 impl DnsData for DnsQuestion {
-    #[instrument(name = "Encoding DNS Question", skip_all)]
+    #[instrument(name = "Encoding DNS Question", skip_all, parent = None)]
     fn encode(&self, pos: usize, label_map: LabelMap) -> Result<Bytes> {
         info!(position = pos, "Encoding Question");
         let mut buf: BytesMut = BytesMut::new();
@@ -33,7 +33,7 @@ impl DnsData for DnsQuestion {
         Ok(buf.into())
     }
 
-    #[instrument(name = "Decoding DNS Question", skip_all, ret)]
+    #[instrument(name = "Decoding DNS Question", skip_all, ret, parent = None)]
     fn decode(buf: &Bytes, pos: usize, label_map: LabelMap) -> Result<(usize, Self)> {
         let (current, name) = LabelSet::decode(buf, pos, label_map)?;
 
