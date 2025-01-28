@@ -1,5 +1,5 @@
 use crate::dns::QuestionType;
-use crate::dns::label::LabelSet;
+use crate::dns::label::Domain;
 use crate::parse::DnsData;
 use crate::parse::LabelMap;
 use crate::parse::parse_u16;
@@ -11,7 +11,7 @@ use tracing::instrument;
 
 #[derive(Default, Clone, Debug, Eq, PartialEq)]
 pub struct DnsQuestion {
-    pub name: LabelSet,
+    pub name: Domain,
     pub qtype: QuestionType,
     pub class: u16,
 }
@@ -35,7 +35,7 @@ impl DnsData for DnsQuestion {
 
     #[instrument(name = "Decoding DNS Question", skip_all, ret, parent = None)]
     fn decode(buf: &Bytes, pos: usize, label_map: LabelMap) -> Result<(usize, Self)> {
-        let (current, name) = LabelSet::decode(buf, pos, label_map)?;
+        let (current, name) = Domain::decode(buf, pos, label_map)?;
 
         // question type
         let (current, qtype) = {
@@ -104,7 +104,7 @@ mod tests {
 
     impl Arbitrary for DnsQuestion {
         fn arbitrary(g: &mut quickcheck::Gen) -> Self {
-            let name: LabelSet = LabelSet::arbitrary(g);
+            let name: Domain = Domain::arbitrary(g);
             let class = u16::arbitrary(g);
             let qtype = (u16::arbitrary(g) % 16) + 1;
             let qtype: QuestionType = qtype.try_into().unwrap();

@@ -42,9 +42,9 @@ pub fn parse_u32(buf: &Bytes, pos: usize) -> Result<(usize, u32)> {
 #[instrument(skip_all, ret)]
 pub fn parse_string(buf: &Bytes, pos: usize) -> Result<(usize, String)> {
     // first we'll read the length of the string
-    let (current, length) = parse_u8(buf, pos)?;
+    let (current, length) = parse_u16(buf, pos)?;
     debug!("Parsing string of length {length}");
-    ensure!(length < u8::MAX, "String too large");
+    ensure!(length <= 0x3fff, "String too large");
 
     Ok((
         current + length as usize,

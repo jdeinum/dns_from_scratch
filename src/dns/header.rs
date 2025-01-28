@@ -225,7 +225,7 @@ mod tests {
     }
 
     quickcheck! {
-        fn decode_encode_header(h: DnsHeader) -> TestResult {
+        fn encode_decode_header(h: DnsHeader) -> TestResult {
             let mut m: HashMap<String, usize> = HashMap::new();
             let encoded_header = DnsHeader::encode(&h, 0, &mut m).unwrap();
             let (index, decoded_header) = DnsHeader::decode(&encoded_header, 0, &mut m).unwrap();

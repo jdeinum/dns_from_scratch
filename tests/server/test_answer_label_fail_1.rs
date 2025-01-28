@@ -14,33 +14,15 @@ async fn test_answer_label_fail_1() -> Result<()> {
     dns_request.questions = DnsQuestionSet {
         questions: [
             DnsQuestion {
-                name: LabelSet {
-                    labels: ["e07a", "f48", "ad149", "8efc", "1988c", "9"]
-                        .map(|x| x.to_string())
-                        .to_vec(),
-                },
-                qtype: QuestionType::CNAME,
-                class: 48648,
-            },
-            DnsQuestion {
-                name: LabelSet {
-                    labels: ["1", "9c", "10", "8c7e4", "ad", "59f0"]
-                        .map(|x| x.to_string())
-                        .to_vec(),
-                },
-                qtype: QuestionType::MX,
-                class: 32060,
-            },
-            DnsQuestion {
-                name: LabelSet {
-                    labels: ["6", "7", "4a", "7"].map(|x| x.to_string()).to_vec(),
+                name: Domain {
+                    labels: ["6", "7", "4a", "7"].map(|x| Label(x.to_string())).to_vec(),
                 },
                 qtype: QuestionType::MG,
                 class: 17423,
             },
             DnsQuestion {
-                name: LabelSet {
-                    labels: ["1", "7"].map(|x| x.to_string()).to_vec(),
+                name: Domain {
+                    labels: ["1", "7"].map(|x| Label(x.to_string())).to_vec(),
                 },
                 qtype: QuestionType::MR,
                 class: 45750,

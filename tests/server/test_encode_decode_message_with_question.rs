@@ -14,34 +14,37 @@ async fn test_encode_decode_message_with_question() -> Result<()> {
     dns_request.questions = DnsQuestionSet {
         questions: [
             DnsQuestion {
-                name: LabelSet {
-                    labels: ["7f", "171ef"].iter().map(|x| x.to_string()).collect(),
+                name: Domain {
+                    labels: ["7f", "171ef"]
+                        .iter()
+                        .map(|x| Label(x.to_string()))
+                        .collect(),
                 },
                 qtype: QuestionType::MX,
                 class: 30784,
             },
             DnsQuestion {
-                name: LabelSet {
-                    labels: ["bd", "3"].iter().map(|x| x.to_string()).collect(),
+                name: Domain {
+                    labels: ["bd", "3"].iter().map(|x| Label(x.to_string())).collect(),
                 },
                 qtype: QuestionType::SOA,
                 class: 51141,
             },
             DnsQuestion {
-                name: LabelSet {
+                name: Domain {
                     labels: ["7", "a8", "80f9", "1", "3"]
                         .iter()
-                        .map(|x| x.to_string())
+                        .map(|x| Label(x.to_string()))
                         .collect(),
                 },
                 qtype: QuestionType::MR,
                 class: 37020,
             },
             DnsQuestion {
-                name: LabelSet {
+                name: Domain {
                     labels: ["1168", "ad55b", "19", "e"]
                         .iter()
-                        .map(|x| x.to_string())
+                        .map(|x| Label(x.to_string()))
                         .collect(),
                 },
                 qtype: QuestionType::PTR,
